@@ -3,18 +3,48 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>The Virtual Garage: F1 Engineering Suite</title>
+  <title>Galactic F1 Command Center</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
+  <div class="starfield"></div>
+  <div class="hud-grid"></div>
+
   <div class="dashboard-shell">
     <aside class="sidebar">
       <div class="brand-block">
-        <p class="eyebrow">Staff Engineer Console</p>
-        <h1>The Virtual Garage</h1>
-        <p class="brand-copy">FastAPI telemetry, suspension kinematics, and pit wall strategy in one decoupled suite.</p>
+        <p class="eyebrow">Galactic F1 Command Center</p>
+        <h1>Deep Space Race Intelligence</h1>
+        <p class="brand-copy">Sith-level pace management, Jedi-precise setup control, and hyperspace telemetry.</p>
+      </div>
+
+      <div class="sidebar-card control-card">
+        <span class="sidebar-label">Control Panel</span>
+        <div class="control-stack">
+          <label>
+            <span>Driver</span>
+            <select id="driverSelect"></select>
+          </label>
+          <label>
+            <span>Team</span>
+            <select id="teamSelect"></select>
+          </label>
+          <label>
+            <span>Car</span>
+            <select id="carSelect"></select>
+          </label>
+          <label>
+            <span>Track</span>
+            <select id="trackSelect"></select>
+          </label>
+          <label>
+            <span>Weather</span>
+            <select id="weatherSelect"></select>
+          </label>
+          <button id="syncButton" class="primary-action" type="button">Engage Sandbox Simulator</button>
+        </div>
       </div>
 
       <nav class="tab-list" aria-label="Dashboard sections">
@@ -24,9 +54,9 @@
       </nav>
 
       <div class="sidebar-card" id="connectionCard">
-        <span class="sidebar-label">API Status</span>
-        <strong id="apiStatus">Loading live OpenF1 feeds...</strong>
-        <p id="apiHint">Public data will fall back to deterministic mock data whenever OpenF1 is unavailable.</p>
+        <span class="sidebar-label">Command Status</span>
+        <strong id="apiStatus">Initializing hyperspace feeds...</strong>
+        <p id="apiHint">OpenF1 data is cached locally and the sandbox simulator will take over instantly on failure.</p>
       </div>
     </aside>
 
@@ -34,29 +64,29 @@
       <header class="hero-panel">
         <div>
           <p class="eyebrow">Race Operations Dashboard</p>
-          <h2>Decoupled web suite for strategy, setup, and telemetry.</h2>
+          <h2>Command the grid from a neon bridge above the stars.</h2>
         </div>
         <div class="hero-metrics">
           <div class="metric-card">
-            <span>Latency-aware</span>
-            <strong>FastAPI</strong>
+            <span>Mode</span>
+            <strong id="modeMetric">OpenF1</strong>
           </div>
           <div class="metric-card">
-            <span>Visualization</span>
-            <strong>Plotly.js</strong>
+            <span>Weather</span>
+            <strong id="weatherMetric">Dry</strong>
           </div>
           <div class="metric-card">
-            <span>Data source</span>
-            <strong>OpenF1</strong>
+            <span>Track</span>
+            <strong id="trackMetric">Monza</strong>
           </div>
         </div>
       </header>
 
-      <section class="panel active" id="pitwallPanel" aria-labelledby="pitwallTab">
+      <section class="panel active" id="pitwallPanel">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Module 01</p>
-            <h3>Pit Wall Strategy</h3>
+            <h3>Pit Wall Degradation Command</h3>
           </div>
           <div class="inline-meta">
             <span id="pitwallSource">Source: loading</span>
@@ -66,8 +96,8 @@
         <div class="module-grid pitwall-grid">
           <article class="module-card chart-card">
             <div class="card-header">
-              <h4>Tire Decay Simulation</h4>
-              <p>Animated grip decay with live warning thresholds.</p>
+              <h4>Interactive Degradation Curve</h4>
+              <p>Grip decay responds to weather, car mass, and sandbox control inputs.</p>
             </div>
             <div id="pitwallChart" class="chart-surface"></div>
           </article>
@@ -86,7 +116,7 @@
                 <strong id="pitwallSession">-</strong>
               </div>
               <div class="summary-card warning-shell" id="pitwallWarningShell">
-                <span>Race Control</span>
+                <span>Holocomm</span>
                 <strong id="pitwallWarning">Awaiting telemetry</strong>
               </div>
             </div>
@@ -94,11 +124,11 @@
         </div>
       </section>
 
-      <section class="panel" id="suspensionPanel" aria-labelledby="suspensionTab">
+      <section class="panel" id="suspensionPanel">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Module 02</p>
-            <h3>Suspension Lab</h3>
+            <h3>Suspension Wireframe Lab</h3>
           </div>
           <div class="inline-meta">
             <span id="suspensionSource">Source: loading</span>
@@ -120,7 +150,7 @@
                 <strong id="wishboneValue">420 mm</strong>
               </label>
             </div>
-            <div id="suspensionChart" class="chart-surface"></div>
+            <canvas id="suspensionCanvas" class="canvas-surface" width="980" height="520"></canvas>
           </article>
           <aside class="module-card side-stack">
             <div class="summary-grid" id="suspensionMetrics"></div>
@@ -128,11 +158,11 @@
         </div>
       </section>
 
-      <section class="panel" id="telemetryPanel" aria-labelledby="telemetryTab">
+      <section class="panel" id="telemetryPanel">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Module 03</p>
-            <h3>Telemetry Center</h3>
+            <h3>Hyperspace Telemetry Array</h3>
           </div>
           <div class="inline-meta">
             <span id="telemetrySource">Source: loading</span>
@@ -143,15 +173,15 @@
         <div class="module-grid telemetry-grid">
           <article class="module-card chart-card tall-card">
             <div class="card-header">
-              <h4>Aligned Performance Traces</h4>
-              <p>Speed, throttle, and brake share one X-axis across synchronized panes.</p>
+              <h4>Aligned Sci-Fi HUD Traces</h4>
+              <p>Speed, throttle, and brake share one X-axis with synchronized panes.</p>
             </div>
             <div id="telemetryChart" class="chart-surface chart-surface-large"></div>
           </article>
           <article class="module-card chart-card">
             <div class="card-header">
-              <h4>Track Map</h4>
-              <p>2D circuit scatter plot color-coded by velocity.</p>
+              <h4>2D Track Route</h4>
+              <p>Glowing velocity-coded route map with drifting starboard styling.</p>
             </div>
             <div id="trackChart" class="chart-surface"></div>
           </article>

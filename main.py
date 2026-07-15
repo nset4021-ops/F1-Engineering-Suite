@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -22,10 +23,35 @@ COMPOUND_DEGRADATION = {
     "UNKNOWN": 3.5,
 }
 
+DEFAULT_TRACKS = {
+    "monza": {"base_speed": 372.0, "corner_factor": 0.84, "distance": 5793.0},
+    "silverstone": {"base_speed": 343.0, "corner_factor": 0.78, "distance": 5891.0},
+    "spa": {"base_speed": 358.0, "corner_factor": 0.81, "distance": 7004.0},
+    "baku": {"base_speed": 371.0, "corner_factor": 0.83, "distance": 6003.0},
+    "default": {"base_speed": 352.0, "corner_factor": 0.80, "distance": 5300.0},
+}
+
+DEFAULT_CONTROL_STATE = {
+    "driver": "Apex One",
+    "team": "Astral Works",
+    "car": "Balanced",
+    "track": "monza",
+    "weather": "dry",
+}
+
 app = FastAPI(title="The Virtual Garage: An F1 Engineering Suite", version="2.0.0")
+
+_OPENF1_CACHE: Dict[Tuple[str, Tuple[Tuple[str, Any], ...]], Tuple[float, List[Dict[str, Any]]]] = {}
+_CACHE_TTL_SECONDS = 90.0
 
 
 def _request_openf1(endpoint: str, params: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], str]:
+    cache_key = (endpoint, tuple(sorted(params.items())))
+    cached = _OPENF1_CACHE.get(cache_key)
+    now = time.time()
+    if cached and now - cached[0] < _CACHE_TTL_SECONDS:
+        return cached[1], "cached"
+
     url = f"{OPENF1_BASE}/{endpoint}"
     try:
         response = requests.get(url, params=params, timeout=10)
@@ -33,8 +59,11 @@ def _request_openf1(endpoint: str, params: Dict[str, Any]) -> Tuple[List[Dict[st
         payload = response.json()
         if not isinstance(payload, list):
             raise ValueError(f"Unexpected response type from {endpoint}")
+        _OPENF1_CACHE[cache_key] = (now, payload)
         return payload, "real"
     except (requests.RequestException, ValueError, TimeoutError) as exc:
+        if cached:
+            return cached[1], "cached"
         return [], f"{type(exc).__name__}: {exc}"
 
 
@@ -49,7 +78,7 @@ def _normalize_date_frame(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
     df = df.copy()
-    df["date"] = pd.to_datetime(df["date"], utc=True, errors="coerce").dt.tz_localize(None)
+    df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_localize(None)
     return df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
 
 
@@ -97,6 +126,105 @@ def _fallback_telemetry_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
         }
     )
     return car_df, loc_df
+
+
+def _resolve_track(track_name: str) -> Dict[str, float]:
+    return DEFAULT_TRACKS.get(track_name.lower(), DEFAULT_TRACKS["default"])
+
+
+def _weather_multiplier(weather: str) -> Dict[str, float]:
+    mapping = {
+        "dry": {"corner": 1.0, "tyre": 1.0, "grip": 1.0, "brake": 1.0},
+        "damp": {"corner": 0.93, "tyre": 1.18, "grip": 0.88, "brake": 0.96},
+        "wet": {"corner": 0.83, "tyre": 1.42, "grip": 0.72, "brake": 0.90},
+    }
+    return mapping.get(weather.lower(), mapping["dry"])
+
+
+def _car_profile(car_mode: str) -> Dict[str, float]:
+    mapping = {
+        "light": {"mass": 796.0, "aero": 1.05, "tyre": 0.92},
+        "balanced": {"mass": 806.0, "aero": 1.0, "tyre": 1.0},
+        "downforce": {"mass": 814.0, "aero": 1.10, "tyre": 1.08},
+        "weight": {"mass": 832.0, "aero": 0.96, "tyre": 1.18},
+    }
+    return mapping.get(car_mode.lower(), mapping["balanced"])
+
+
+def _physics_simulator(
+    driver: str,
+    team: str,
+    car_mode: str,
+    track: str,
+    weather: str,
+    sample_count: int = 150,
+) -> Dict[str, Any]:
+    track_profile = _resolve_track(track)
+    weather_profile = _weather_multiplier(weather)
+    car_profile = _car_profile(car_mode)
+
+    index = np.arange(sample_count, dtype=float)
+    base_speed = track_profile["base_speed"] * car_profile["aero"] * weather_profile["corner"]
+    rhythm = np.sin(index / 9.0) * 18.0 + np.cos(index / 17.0) * 7.0
+    speed = np.clip(base_speed + rhythm - (car_profile["mass"] - 800.0) * 0.45, 148.0, None)
+    throttle = np.clip(78.0 + np.sin(index / 8.0) * 15.0 - (weather_profile["grip"] < 0.9) * 8.0, 0.0, 100.0)
+    brake = np.clip(np.where(throttle < 58.0, 100.0 - throttle + (weather_profile["corner"] < 1.0) * 6.0, 12.0), 0.0, 100.0)
+    corner_speed = np.clip(speed * weather_profile["corner"] * (1.02 - (car_profile["mass"] - 800.0) / 2600.0), 95.0, None)
+    tyre_wear = np.clip(
+        7.0
+        + index * 0.42 * weather_profile["tyre"]
+        + (car_profile["mass"] - 800.0) * 0.045
+        + (1.0 - weather_profile["grip"]) * 12.0,
+        0.0,
+        100.0,
+    )
+    grip = np.clip(100.0 - tyre_wear * 0.78 - (weather_profile["grip"] < 1.0) * 8.0, 0.0, 100.0)
+
+    theta = np.linspace(0.0, 2.0 * np.pi, sample_count)
+    radius = track_profile["distance"] / 4.1
+    x = radius * np.cos(theta) + 140.0 * np.cos(3.0 * theta)
+    y = radius * 0.62 * np.sin(theta) + 95.0 * np.sin(4.0 * theta)
+    velocity_state = np.clip(speed / max(float(speed.max()), 1.0), 0.0, 1.0)
+
+    dates = pd.date_range(end=pd.Timestamp.utcnow().tz_localize(None), periods=sample_count, freq="2s")
+    telemetry = pd.DataFrame(
+        {
+            "date": dates,
+            "speed": speed,
+            "throttle": throttle,
+            "brake": brake,
+            "corner_speed": corner_speed,
+            "tyre_wear": tyre_wear,
+            "grip": grip,
+            "x": x,
+            "y": y,
+            "velocity_state": velocity_state,
+        }
+    )
+
+    lap_times = np.clip((track_profile["distance"] / np.maximum(speed, 1.0)) * 10.0 + 25.0 + tyre_wear * 0.03, 65.0, None)
+    pitwall = pd.DataFrame(
+        {
+            "lap_number": np.arange(1, sample_count + 1),
+            "lap_time": lap_times,
+            "compound": np.where(weather_profile["grip"] < 0.8, "INTERMEDIATE", np.where(weather_profile["grip"] < 0.75, "WET", "MEDIUM")),
+            "date": dates,
+            "grip": grip,
+        }
+    )
+
+    return {
+        "driver": driver,
+        "team": team,
+        "car": car_mode,
+        "track": track,
+        "weather": weather,
+        "track_profile": track_profile,
+        "weather_profile": weather_profile,
+        "car_profile": car_profile,
+        "telemetry": telemetry,
+        "pitwall": pitwall,
+    }
 
 
 def _parse_pitwall_rows(rows: List[Dict[str, Any]]) -> pd.DataFrame:
@@ -256,8 +384,8 @@ def _telemetry_payload(session_key: int, driver_number: int) -> Dict[str, Any]:
         car_df, loc_df = _fallback_telemetry_frames()
         car_source = loc_source = "mock"
 
-    car_df = car_df.sort_values("date").dropna(subset=["date", "speed", "throttle", "brake"]).head(200).reset_index(drop=True)
-    loc_df = loc_df.sort_values("date").dropna(subset=["date", "x", "y"]).head(200).reset_index(drop=True)
+    car_df = car_df.sort_values("date").dropna(subset=["date", "speed", "throttle", "brake"]).head(150).reset_index(drop=True)
+    loc_df = loc_df.sort_values("date").dropna(subset=["date", "x", "y"]).head(150).reset_index(drop=True)
 
     merged = pd.merge_asof(car_df, loc_df, on="date", direction="nearest")
     merged = merged.dropna(subset=["x", "y", "speed", "throttle", "brake"]).reset_index(drop=True)
@@ -265,8 +393,8 @@ def _telemetry_payload(session_key: int, driver_number: int) -> Dict[str, Any]:
     if merged.empty:
         car_df, loc_df = _fallback_telemetry_frames()
         merged = pd.merge_asof(
-            car_df.sort_values("date").head(200).reset_index(drop=True),
-            loc_df.sort_values("date").head(200).reset_index(drop=True),
+            car_df.sort_values("date").head(150).reset_index(drop=True),
+            loc_df.sort_values("date").head(150).reset_index(drop=True),
             on="date",
             direction="nearest",
         ).dropna(subset=["x", "y", "speed", "throttle", "brake"]).reset_index(drop=True)
@@ -287,6 +415,67 @@ def _telemetry_payload(session_key: int, driver_number: int) -> Dict[str, Any]:
             }
             for row in merged.itertuples(index=False)
         ],
+    }
+
+
+@app.get("/api/control")
+def api_control(
+    driver: str = Query(DEFAULT_CONTROL_STATE["driver"], min_length=1),
+    team: str = Query(DEFAULT_CONTROL_STATE["team"], min_length=1),
+    car: str = Query(DEFAULT_CONTROL_STATE["car"], min_length=1),
+    track: str = Query(DEFAULT_CONTROL_STATE["track"], min_length=1),
+    weather: str = Query(DEFAULT_CONTROL_STATE["weather"], min_length=1),
+) -> Dict[str, Any]:
+    simulation = _physics_simulator(driver, team, car, track, weather)
+    telemetry = simulation["telemetry"]
+    pitwall = simulation["pitwall"]
+
+    return {
+        "control": {
+            "driver": driver,
+            "team": team,
+            "car": car,
+            "track": track,
+            "weather": weather,
+        },
+        "track_profile": simulation["track_profile"],
+        "weather_profile": simulation["weather_profile"],
+        "car_profile": simulation["car_profile"],
+        "pitwall": {
+            "source": "sandbox",
+            "compound": str(pitwall["compound"].iloc[-1]),
+            "latest_grip": round(float(pitwall["grip"].iloc[-1]), 2),
+            "warning": bool(float(pitwall["grip"].iloc[-1]) < 45.0),
+            "data": [
+                {
+                    "lap_number": int(row.lap_number),
+                    "lap_time": round(float(row.lap_time), 3),
+                    "compound": row.compound,
+                    "date": row.date.isoformat(),
+                    "grip": round(float(row.grip), 2),
+                }
+                for row in pitwall.itertuples(index=False)
+            ],
+        },
+        "telemetry": {
+            "source": "sandbox",
+            "data": [
+                {
+                    "date": row.date.isoformat(),
+                    "speed": round(float(row.speed), 2),
+                    "throttle": round(float(row.throttle), 2),
+                    "brake": round(float(row.brake), 2),
+                    "x": round(float(row.x), 3),
+                    "y": round(float(row.y), 3),
+                    "velocity_state": round(float(row.velocity_state), 3),
+                }
+                for row in telemetry.itertuples(index=False)
+            ],
+        },
+        "suspension": {
+            "source": "sandbox",
+            "camber_proxy": round(float((car_profile := simulation["car_profile"])["aero"] * 1.6 - car_profile["mass"] / 1000.0), 3),
+        },
     }
 
 

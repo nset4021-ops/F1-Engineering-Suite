@@ -2,11 +2,28 @@ const state = {
   pitwall: null,
   suspension: null,
   telemetry: null,
+  control: {
+    driver: "Apex One",
+    team: "Astral Works",
+    car: "Balanced",
+    track: "monza",
+    weather: "dry",
+  },
+  simulatorActive: false,
 };
 
 const selectors = {
   apiStatus: document.getElementById("apiStatus"),
   apiHint: document.getElementById("apiHint"),
+  modeMetric: document.getElementById("modeMetric"),
+  weatherMetric: document.getElementById("weatherMetric"),
+  trackMetric: document.getElementById("trackMetric"),
+  driverSelect: document.getElementById("driverSelect"),
+  teamSelect: document.getElementById("teamSelect"),
+  carSelect: document.getElementById("carSelect"),
+  trackSelect: document.getElementById("trackSelect"),
+  weatherSelect: document.getElementById("weatherSelect"),
+  syncButton: document.getElementById("syncButton"),
   pitwallSource: document.getElementById("pitwallSource"),
   pitwallCompound: document.getElementById("pitwallCompound"),
   pitwallLap: document.getElementById("pitwallLap"),
@@ -23,6 +40,15 @@ const selectors = {
   suspensionMetrics: document.getElementById("suspensionMetrics"),
   telemetrySource: document.getElementById("telemetrySource"),
   telemetryCount: document.getElementById("telemetryCount"),
+  suspensionCanvas: document.getElementById("suspensionCanvas"),
+};
+
+const constants = {
+  drivers: ["Apex One", "Nova Rhea", "Orion Vale", "Lyra Bolt"],
+  teams: ["Astral Works", "Nebula GP", "Solaris Racing", "Andromeda Speed"],
+  cars: ["Balanced", "Light", "Downforce", "Weight"],
+  tracks: ["monza", "silverstone", "spa", "baku", "default"],
+  weather: ["dry", "damp", "wet"],
 };
 
 function formatRound(value, decimals = 1) {
@@ -30,7 +56,13 @@ function formatRound(value, decimals = 1) {
 }
 
 function apiUrl(path) {
-  return `${path}?session_key=9839&driver_number=44`;
+  const params = new URLSearchParams({ session_key: "9839", driver_number: "44" });
+  return `${path}?${params.toString()}`;
+}
+
+function controlUrl() {
+  const params = new URLSearchParams(state.control);
+  return `/api/control?${params.toString()}`;
 }
 
 async function fetchJSON(path) {
@@ -41,11 +73,29 @@ async function fetchJSON(path) {
   return response.json();
 }
 
+async function fetchControlJSON() {
+  const response = await fetch(controlUrl(), { headers: { Accept: "application/json" } });
+  if (!response.ok) {
+    throw new Error(`Sandbox request failed with ${response.status}`);
+  }
+  return response.json();
+}
+
 function setStatus(message, subtle = false) {
   selectors.apiStatus.textContent = message;
   selectors.apiHint.textContent = subtle
     ? "Switching to deterministic fallback data keeps the dashboard responsive during API outages."
     : "Public OpenF1 data is flowing into the suite.";
+}
+
+function populateSelect(select, values) {
+  select.innerHTML = values.map((value) => `<option value="${value}">${value}</option>`).join("");
+}
+
+function syncThemeMetrics() {
+  selectors.modeMetric.textContent = state.simulatorActive ? "Sandbox" : "OpenF1";
+  selectors.weatherMetric.textContent = state.control.weather.charAt(0).toUpperCase() + state.control.weather.slice(1);
+  selectors.trackMetric.textContent = state.control.track.charAt(0).toUpperCase() + state.control.track.slice(1);
 }
 
 function initTabs() {
@@ -66,6 +116,41 @@ function initTabs() {
   }
 
   tabs.forEach((button) => button.addEventListener("click", () => activate(button.dataset.tab)));
+}
+
+function initControlPanel() {
+  populateSelect(selectors.driverSelect, constants.drivers);
+  populateSelect(selectors.teamSelect, constants.teams);
+  populateSelect(selectors.carSelect, constants.cars);
+  populateSelect(selectors.trackSelect, constants.tracks);
+  populateSelect(selectors.weatherSelect, constants.weather);
+
+  selectors.driverSelect.value = state.control.driver;
+  selectors.teamSelect.value = state.control.team;
+  selectors.carSelect.value = state.control.car;
+  selectors.trackSelect.value = state.control.track;
+  selectors.weatherSelect.value = state.control.weather;
+
+  const updateControl = () => {
+    state.control = {
+      driver: selectors.driverSelect.value,
+      team: selectors.teamSelect.value,
+      car: selectors.carSelect.value,
+      track: selectors.trackSelect.value,
+      weather: selectors.weatherSelect.value,
+    };
+    syncThemeMetrics();
+  };
+
+  [selectors.driverSelect, selectors.teamSelect, selectors.carSelect, selectors.trackSelect, selectors.weatherSelect].forEach((element) => {
+    element.addEventListener("change", updateControl);
+  });
+
+  selectors.syncButton.addEventListener("click", async () => {
+    state.simulatorActive = true;
+    syncThemeMetrics();
+    await refreshDashboard();
+  });
 }
 
 function buildPitwallChart(data, progress = data.length) {
@@ -110,6 +195,16 @@ function buildPitwallChart(data, progress = data.length) {
     },
     legend: { orientation: "h", y: 1.12, x: 0 },
     transition: { duration: 220 },
+    shapes: [
+      {
+        type: "line",
+        x0: laps[0] ?? 0,
+        x1: laps[laps.length - 1] ?? 1,
+        y0: 45,
+        y1: 45,
+        line: { color: "#ff4b4b", width: 1.5, dash: "dot" },
+      },
+    ],
   };
 
   Plotly.react("pitwallChart", traces, layout, { responsive: true, displayModeBar: false });
@@ -145,6 +240,70 @@ function animatePitwall(data) {
   }, 420);
 }
 
+async function refreshDashboard() {
+  const useSandbox = state.simulatorActive;
+  let pitwallPayload;
+  let suspensionPayload;
+  let telemetryPayload;
+
+  if (useSandbox) {
+    const control = await fetchControlJSON();
+    pitwallPayload = control.pitwall;
+    suspensionPayload = {
+      source: control.suspension.source,
+      defaults: {
+        roll_angle_deg: 0,
+        wishbone_length_mm: 420,
+        chassis_half_width_mm: 220,
+        upright_height_mm: 165,
+      },
+      summary: {
+        average_speed: Number(control.track_profile.base_speed.toFixed(2)),
+        peak_brake: Number((100 - control.weather_profile.grip * 10).toFixed(2)),
+        mean_throttle: Number((80 - (control.car_profile.mass - 800) * 0.4).toFixed(2)),
+        sample_count: control.telemetry.data.length,
+      },
+    };
+    telemetryPayload = control.telemetry;
+  } else {
+    const [pitwall, suspension, telemetry] = await Promise.allSettled([
+      fetchJSON("/api/pitwall"),
+      fetchJSON("/api/suspension"),
+      fetchJSON("/api/telemetry"),
+    ]);
+
+    if (pitwall.status === "fulfilled") pitwallPayload = pitwall.value;
+    if (suspension.status === "fulfilled") suspensionPayload = suspension.value;
+    if (telemetry.status === "fulfilled") telemetryPayload = telemetry.value;
+  }
+
+  if (pitwallPayload) {
+    state.pitwall = pitwallPayload;
+    selectors.pitwallSource.textContent = `Source: ${state.pitwall.source}`;
+    selectors.pitwallSession.textContent = String(state.pitwall.session_key ?? 9839);
+    selectors.pitwallCompound.textContent = `Compound: ${state.pitwall.compound ?? "UNKNOWN"}`;
+    animatePitwall(state.pitwall.data);
+  }
+
+  if (suspensionPayload) {
+    state.suspension = suspensionPayload;
+    selectors.suspensionSource.textContent = `Source: ${state.suspension.source}`;
+    renderSuspension(state.suspension);
+  }
+
+  if (telemetryPayload) {
+    state.telemetry = telemetryPayload;
+    selectors.telemetrySource.textContent = `Source: ${state.telemetry.source?.car_data ?? state.telemetry.source ?? "sandbox"}`;
+    renderTelemetry(state.telemetry);
+  }
+
+  if (useSandbox) {
+    setStatus("Sandbox simulator engaged. OpenF1 requests paused.", false);
+  } else {
+    setStatus("Live feeds ready with local cache protection.", false);
+  }
+}
+
 function updateSuspensionMetrics(payload, camber) {
   const summary = payload.summary ?? {};
   selectors.camberOutput.textContent = `Camber: ${formatRound(camber, 2)}°`;
@@ -154,6 +313,98 @@ function updateSuspensionMetrics(payload, camber) {
     <div class="summary-card"><span>Mean Throttle</span><strong>${formatRound(summary.mean_throttle, 1)}%</strong></div>
     <div class="summary-card"><span>Samples</span><strong>${summary.sample_count ?? 0}</strong></div>
   `;
+}
+
+function drawSuspensionCanvas(payload) {
+  const canvas = selectors.suspensionCanvas;
+  const context = canvas.getContext("2d");
+  const rect = canvas.getBoundingClientRect();
+  const deviceRatio = window.devicePixelRatio || 1;
+  canvas.width = Math.floor(rect.width * deviceRatio);
+  canvas.height = Math.floor(Math.max(rect.height, 420) * deviceRatio);
+  context.setTransform(deviceRatio, 0, 0, deviceRatio, 0, 0);
+
+  const width = rect.width;
+  const height = Math.max(rect.height, 420);
+  const centerX = width * 0.52;
+  const centerY = height * 0.5;
+  const roll = Number(selectors.rollSlider.value) * Math.PI / 180;
+  const wishbone = Number(selectors.wishboneSlider.value);
+  const scale = wishbone / 4.2;
+  const upperOffset = { x: Math.cos(roll) * scale, y: -Math.sin(roll) * scale * 0.6 };
+  const lowerOffset = { x: Math.cos(roll + 0.12) * scale * 1.05, y: Math.sin(roll + 0.12) * scale * 0.55 };
+  const uprightTop = { x: centerX + Math.sin(roll) * 64, y: centerY - 106 };
+  const uprightBottom = { x: centerX - Math.sin(roll) * 40, y: centerY + 104 };
+  const glow = selectors.pitwallWarningShell.classList.contains("flash-warning") ? 1 : 0.35;
+
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = getComputedStyle(document.body).getPropertyValue("--bg-canvas").trim();
+  context.fillRect(0, 0, width, height);
+
+  context.strokeStyle = "rgba(94, 255, 248, 0.12)";
+  for (let x = 0; x < width; x += 32) {
+    context.beginPath();
+    context.moveTo(x, 0);
+    context.lineTo(x, height);
+    context.stroke();
+  }
+  for (let y = 0; y < height; y += 32) {
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(width, y);
+    context.stroke();
+  }
+
+  const drawLink = (from, to, color, lineWidth = 4) => {
+    context.shadowBlur = 18;
+    context.shadowColor = color;
+    context.strokeStyle = color;
+    context.lineWidth = lineWidth;
+    context.beginPath();
+    context.moveTo(from.x, from.y);
+    context.lineTo(to.x, to.y);
+    context.stroke();
+  };
+
+  const baseTopLeft = { x: centerX - 180, y: centerY - 130 };
+  const baseTopRight = { x: centerX + 180, y: centerY - 130 };
+  const baseBottomLeft = { x: centerX - 180, y: centerY + 130 };
+  const baseBottomRight = { x: centerX + 180, y: centerY + 130 };
+
+  drawLink(baseTopLeft, { x: centerX - 36, y: centerY - 28 }, `rgba(94, 255, 248, ${0.85 + glow * 0.15})`);
+  drawLink(baseTopRight, { x: centerX + 38, y: centerY - 26 }, `rgba(255, 182, 67, ${0.9})`);
+  drawLink(baseBottomLeft, { x: centerX - 40, y: centerY + 28 }, `rgba(255, 182, 67, ${0.9})`);
+  drawLink(baseBottomRight, { x: centerX + 36, y: centerY + 30 }, `rgba(94, 255, 248, ${0.85 + glow * 0.15})`);
+  drawLink({ x: centerX - 36, y: centerY - 28 }, uprightTop, `rgba(94, 255, 248, ${0.95})`, 5);
+  drawLink({ x: centerX + 38, y: centerY - 26 }, uprightTop, `rgba(255, 182, 67, ${0.95})`, 5);
+  drawLink({ x: centerX - 40, y: centerY + 28 }, uprightBottom, `rgba(255, 182, 67, ${0.95})`, 5);
+  drawLink({ x: centerX + 36, y: centerY + 30 }, uprightBottom, `rgba(94, 255, 248, ${0.95})`, 5);
+
+  context.shadowBlur = 28;
+  context.shadowColor = "rgba(94,255,248,0.9)";
+  context.strokeStyle = "rgba(220,245,255,0.88)";
+  context.lineWidth = 8;
+  context.beginPath();
+  context.moveTo(uprightTop.x, uprightTop.y);
+  context.lineTo(uprightBottom.x, uprightBottom.y);
+  context.stroke();
+
+  context.fillStyle = "rgba(0, 0, 0, 0.28)";
+  context.strokeStyle = "rgba(94, 255, 248, 0.85)";
+  context.lineWidth = 2;
+  [baseTopLeft, baseTopRight, baseBottomLeft, baseBottomRight, uprightTop, uprightBottom].forEach((point) => {
+    context.beginPath();
+    context.arc(point.x, point.y, 8, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+  });
+
+  context.fillStyle = selectors.pitwallWarningShell.classList.contains("flash-warning") ? "rgba(255, 68, 68, 0.95)" : "rgba(94, 255, 248, 0.9)";
+  context.font = '700 18px "IBM Plex Mono", monospace';
+  context.fillText(`Camber ${formatRound(Number(selectors.camberOutput.textContent.replace(/[^0-9.-]/g, "")) || 0, 2)}°`, 22, 34);
+  context.fillText(`Wishbone ${wishbone.toFixed(0)} mm`, 22, 58);
+
+  updateSuspensionMetrics(payload, Number(selectors.camberOutput.textContent.replace(/[^0-9.-]/g, "")) || 0);
 }
 
 function computeSuspensionGeometry(rollAngleDeg, wishboneLengthMm, defaults = {}) {
@@ -244,8 +495,8 @@ function renderSuspension(payload) {
     const geometry = computeSuspensionGeometry(roll, wishbone, defaults);
     selectors.rollValue.textContent = `${formatRound(roll, 1)}°`;
     selectors.wishboneValue.textContent = `${formatRound(wishbone, 0)} mm`;
-    Plotly.react("suspensionChart", geometry.traces, geometry.layout, { responsive: true, displayModeBar: false });
-    updateSuspensionMetrics(payload, geometry.camberDeg);
+    selectors.camberOutput.textContent = `Camber: ${formatRound(geometry.camberDeg, 2)}°`;
+    drawSuspensionCanvas({ ...payload, camber: geometry.camberDeg });
   };
 
   selectors.rollSlider.addEventListener("input", draw);
@@ -344,6 +595,18 @@ function renderTelemetry(payload) {
       { text: "Brake", x: 0.01, y: 0.27, xref: "paper", yref: "paper", showarrow: false, font: { size: 12 } },
     ],
     height: 640,
+    shapes: [
+      {
+        type: "line",
+        x0: dates[0],
+        x1: dates[dates.length - 1],
+        y0: 0,
+        y1: 0,
+        xref: "x",
+        yref: "y3",
+        line: { color: "rgba(94,255,248,0.12)", width: 1, dash: "dot" },
+      },
+    ],
   };
 
   Plotly.react("telemetryChart", traces, telemetryLayout, { responsive: true, displayModeBar: false });
@@ -383,43 +646,9 @@ function renderTelemetry(payload) {
 }
 
 async function initializeDashboard() {
+  initControlPanel();
   initTabs();
-
-  const [pitwall, suspension, telemetry] = await Promise.allSettled([
-    fetchJSON("/api/pitwall"),
-    fetchJSON("/api/suspension"),
-    fetchJSON("/api/telemetry"),
-  ]);
-
-  if (pitwall.status === "fulfilled") {
-    state.pitwall = pitwall.value;
-    selectors.pitwallSource.textContent = `Source: ${state.pitwall.source}`;
-    selectors.pitwallSession.textContent = String(state.pitwall.session_key);
-    selectors.apiStatus.textContent = "Connected to OpenF1 + mock fallback backend";
-    animatePitwall(state.pitwall.data);
-  } else {
-    setStatus("Using fallback pit wall data", true);
-  }
-
-  if (suspension.status === "fulfilled") {
-    state.suspension = suspension.value;
-    renderSuspension(state.suspension);
-  } else {
-    selectors.suspensionSource.textContent = "Source: fallback";
-  }
-
-  if (telemetry.status === "fulfilled") {
-    state.telemetry = telemetry.value;
-    renderTelemetry(state.telemetry);
-  } else {
-    selectors.telemetrySource.textContent = "Source: fallback";
-  }
-
-  if (pitwall.status === "rejected" || suspension.status === "rejected" || telemetry.status === "rejected") {
-    setStatus("One or more feeds used fallback data", true);
-  } else {
-    setStatus("Live feeds ready", false);
-  }
+  await refreshDashboard();
 }
 
 window.addEventListener("resize", () => {
@@ -429,6 +658,9 @@ window.addEventListener("resize", () => {
       Plotly.Plots.resize(target);
     }
   });
+  if (selectors.suspensionCanvas) {
+    drawSuspensionCanvas(state.suspension ?? { summary: {} });
+  }
 });
 
 document.addEventListener("DOMContentLoaded", () => {
