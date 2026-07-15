@@ -134,10 +134,11 @@ def strategy_engine() -> None:
     current_compound = laps_df["compound"].iloc[-1] if not laps_df.empty else "UNKNOWN"
     deg_rate = COMPOUND_DEGRADATION.get(current_compound, COMPOUND_DEGRADATION["UNKNOWN"])
 
-    lap_index = np.arange(len(laps_df))
+    lap_numbers = laps_df["lap_number"].to_numpy()
+    laps_elapsed = lap_numbers - lap_numbers[0]
     baseline = laps_df["lap_time"].iloc[0]
     lap_drift = np.maximum(laps_df["lap_time"] - baseline, 0)
-    theoretical_grip = np.clip(100 - deg_rate * lap_index - 2.2 * lap_drift, 0, 100)
+    theoretical_grip = np.clip(100 - deg_rate * laps_elapsed - 2.2 * lap_drift, 0, 100)
     laps_df["theoretical_grip"] = theoretical_grip
 
     st.caption(f"Data source: {data_source}")
@@ -269,8 +270,8 @@ def parse_location_data(raw: List[Dict]) -> pd.DataFrame:
 def telemetry_center() -> None:
     st.subheader("MODULE 3: TELEMETRY CENTER (REAL DATA VISUALIZER)")
     c1, c2 = st.columns(2)
-    driver_number = c1.text_input("Driver Number", value=str(DEFAULT_DRIVER_NUMBER))
-    session_key = c2.text_input("Session Key", value=str(DEFAULT_SESSION_KEY))
+    driver_number = c1.number_input("Driver Number", min_value=1, max_value=99, value=DEFAULT_DRIVER_NUMBER, step=1)
+    session_key = c2.number_input("Session Key", min_value=1, value=DEFAULT_SESSION_KEY, step=1)
 
     try:
         driver_number_int = int(str(driver_number).strip())
@@ -290,37 +291,23 @@ def telemetry_center() -> None:
     raw_car, car_status = fetch_openf1("car_data", params)
     raw_loc, loc_status = fetch_openf1("location", params)
 
-    if raw_car and raw_loc:
-        car_df = parse_car_data(raw_car)
-        loc_df = parse_location_data(raw_loc)
-        source = "real OpenF1 telemetry"
-    else:
-        st.error(
-            f"Telemetry API failed (car_data: {car_status}; location: {loc_status}). Switching to built-in mock telemetry."
-        )
+    car_df = parse_car_data(raw_car) if raw_car else pd.DataFrame()
+    loc_df = parse_location_data(raw_loc) if raw_loc else pd.DataFrame()
+
+    if car_df.empty:
+        st.error(f"Car telemetry unavailable (car_data: {car_status}). Switching to built-in mock telemetry.")
         car_df = mock_car_data()
         loc_df = mock_location_data()
         source = "mock fallback"
-
-    if car_df.empty or loc_df.empty:
-        st.warning("No telemetry data available for visualization.")
-        return
-
-    merged = pd.merge_asof(
-        car_df.sort_values("timestamp"),
-        loc_df.sort_values("timestamp"),
-        on="timestamp",
-        direction="nearest",
-        tolerance=pd.Timedelta(seconds=2),
-    ).dropna(subset=["x", "y"])
-
-    if merged.empty:
-        st.warning("Unable to align telemetry and location data.")
-        return
+    elif loc_df.empty:
+        st.warning(f"Location data unavailable (location: {loc_status}). Showing real telemetry trends; track map hidden.")
+        source = "real OpenF1 telemetry (no location)"
+    else:
+        source = "real OpenF1 telemetry"
 
     st.caption(f"Data source: {source}")
 
-    trend_df = merged[["timestamp", "speed", "throttle", "brake"]].copy()
+    trend_df = car_df[["timestamp", "speed", "throttle", "brake"]].copy()
     trend_df["timestamp"] = trend_df["timestamp"].dt.tz_convert(None)
     trend_long = trend_df.melt(id_vars=["timestamp"], var_name="Signal", value_name="Value")
 
@@ -333,6 +320,21 @@ def telemetry_center() -> None:
         title="Speed, Throttle, and Braking Over Time",
     )
     st.plotly_chart(trend_fig, use_container_width=True)
+
+    if loc_df.empty:
+        return
+
+    merged = pd.merge_asof(
+        car_df.sort_values("timestamp"),
+        loc_df.sort_values("timestamp"),
+        on="timestamp",
+        direction="nearest",
+        tolerance=pd.Timedelta(seconds=2),
+    ).dropna(subset=["x", "y"])
+
+    if merged.empty:
+        st.warning("Unable to align telemetry and location data for the track map.")
+        return
 
     merged["velocity_state"] = merged["speed"] * np.where(merged["brake"] > 0, -1, 1)
     track_fig = px.scatter(
