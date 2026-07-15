@@ -1,0 +1,140 @@
+:root {
+  --bg-canvas: #f2f4f8;
+  --surface-panel: #ffffff;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --border-grid: rgba(17, 24, 39, 0.15);
+  --neon-glow: #ff3b30;
+  --accent: #0ea5e9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-canvas: #080d17;
+    --surface-panel: #101b2d;
+    --text-primary: #f3f6ff;
+    --text-secondary: #b6c0d7;
+    --border-grid: rgba(243, 246, 255, 0.2);
+    --neon-glow: #ff684f;
+    --accent: #38bdf8;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+}
+
+.app-header {
+  padding: 1.25rem 1.25rem 0.5rem;
+}
+
+.app-header h1 {
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+.app-header p {
+  margin-top: 0.35rem;
+  color: var(--text-secondary);
+}
+
+.dashboard-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.panel {
+  background: var(--surface-panel);
+  border: 1px solid var(--border-grid);
+  border-radius: 0.9rem;
+  padding: 1rem;
+  min-width: 300px;
+  flex: 1 1 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.status-chip {
+  border: 1px solid var(--border-grid);
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.status-chip.alert {
+  color: #ffffff;
+  background: var(--neon-glow);
+  border-color: var(--neon-glow);
+  animation: pulse-alert 0.7s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-alert {
+  from {
+    box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.45);
+    transform: scale(1);
+  }
+  to {
+    box-shadow: 0 0 14px 2px rgba(255, 59, 48, 0.65);
+    transform: scale(1.02);
+  }
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.slider-row label {
+  min-width: 120px;
+  color: var(--text-secondary);
+}
+
+.slider-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.slider-row span {
+  min-width: 78px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart {
+  width: 100%;
+  min-height: 260px;
+  border: 1px solid var(--border-grid);
+  border-radius: 0.6rem;
+}
+
+#suspension-canvas {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border-grid);
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.02);
+}

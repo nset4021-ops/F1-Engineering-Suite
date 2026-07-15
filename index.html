@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Virtual Garage</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script src="https://cdn.plot.ly/plotly-latest.min.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <h1>The Virtual Garage</h1>
+    <p>Split-stack F1 engineering command center</p>
+  </header>
+
+  <main class="dashboard-grid">
+    <section class="panel" aria-labelledby="pitwall-heading">
+      <div class="panel-head">
+        <h2 id="pitwall-heading">Module 1 · Pit Wall</h2>
+        <div id="pitwall-alert" class="status-chip" aria-live="polite">Grip Stable</div>
+      </div>
+      <div id="pitwall-chart" class="chart" role="img" aria-label="Tyre grip and lap trend"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="suspension-heading">
+      <div class="panel-head">
+        <h2 id="suspension-heading">Module 2 · Suspension Lab</h2>
+        <div id="camber-output" class="status-chip">Camber Δ 0.00°</div>
+      </div>
+      <div class="slider-row">
+        <label for="roll-slider">Roll Angle</label>
+        <input id="roll-slider" type="range" min="-8" max="8" step="0.1" value="0" />
+        <span id="roll-value">0.0°</span>
+      </div>
+      <div class="slider-row">
+        <label for="wishbone-slider">Wishbone Length</label>
+        <input id="wishbone-slider" type="range" min="260" max="520" step="1" value="380" />
+        <span id="wishbone-value">380 mm</span>
+      </div>
+      <canvas id="suspension-canvas" width="620" height="340" aria-label="Double wishbone animation"></canvas>
+    </section>
+
+    <section class="panel" aria-labelledby="telemetry-heading">
+      <div class="panel-head">
+        <h2 id="telemetry-heading">Module 3 · Telemetry Center</h2>
+        <div id="telemetry-source" class="status-chip">Source: --</div>
+      </div>
+      <div id="telemetry-chart" class="chart" role="img" aria-label="Telemetry line chart"></div>
+      <div id="track-chart" class="chart" role="img" aria-label="Track map scatter"></div>
+    </section>
+  </main>
+</body>
+</html>
