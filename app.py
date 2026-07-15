@@ -255,8 +255,8 @@ def parse_location_data(raw: List[Dict]) -> pd.DataFrame:
 def telemetry_center() -> None:
     st.subheader("MODULE 3: TELEMETRY CENTER (REAL DATA VISUALIZER)")
     c1, c2 = st.columns(2)
-    driver_number = c1.text_input("Driver Number", value=str(DEFAULT_DRIVER_NUMBER))
-    session_key = c2.text_input("Session Key", value=str(DEFAULT_SESSION_KEY))
+    driver_number = c1.number_input("Driver Number", min_value=1, max_value=99, value=DEFAULT_DRIVER_NUMBER, step=1)
+    session_key = c2.number_input("Session Key", min_value=1, value=DEFAULT_SESSION_KEY, step=1)
 
     params = {"session_key": int(session_key), "driver_number": int(driver_number), "limit": 200}
     raw_car, car_status = fetch_openf1("car_data", params)
