@@ -11,6 +11,7 @@ import streamlit as st
 OPENF1_BASE = "https://api.openf1.org/v1"
 DEFAULT_SESSION_KEY = 9839
 DEFAULT_DRIVER_NUMBER = 44
+TELEMETRY_FETCH_LIMIT = 5000
 
 COMPOUND_DEGRADATION = {
     "SOFT": 4.8,
@@ -47,8 +48,10 @@ def apply_theme() -> None:
 
 
 @st.cache_data(show_spinner=False, ttl=60)
-def fetch_openf1(endpoint: str, session_key: int, driver_number: int) -> Tuple[List[Dict], str]:
+def fetch_openf1(endpoint: str, session_key: int, driver_number: int, limit: int | None = None) -> Tuple[List[Dict], str]:
     url = f"{OPENF1_BASE}/{endpoint}?session_key={session_key}&driver_number={driver_number}"
+    if limit is not None:
+        url += f"&limit={int(limit)}"
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -325,8 +328,8 @@ def telemetry_center() -> None:
         return
 
     raw_laps, laps_status = fetch_openf1("laps", session_key_int, driver_number_int)
-    raw_car, car_status = fetch_openf1("car_data", session_key_int, driver_number_int)
-    raw_loc, loc_status = fetch_openf1("location", session_key_int, driver_number_int)
+    raw_car, car_status = fetch_openf1("car_data", session_key_int, driver_number_int, limit=TELEMETRY_FETCH_LIMIT)
+    raw_loc, loc_status = fetch_openf1("location", session_key_int, driver_number_int, limit=TELEMETRY_FETCH_LIMIT)
 
     try:
         if raw_car and raw_loc:
