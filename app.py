@@ -1,3 +1,4 @@
+import html
 import math
 from typing import Dict, List, Tuple
 
@@ -143,8 +144,9 @@ def strategy_engine() -> None:
     m3.metric("Theoretical Grip (%)", f"{laps_df['theoretical_grip'].iloc[-1]:.1f}")
 
     if laps_df["theoretical_grip"].iloc[-1] < 45:
+        safe_compound = html.escape(str(current_compound))
         st.markdown(
-            f"<div class='warning-box'>BOX BOX: Tyre grip low. Recommend Pit Stop for {current_compound}.</div>",
+            f"<div class='warning-box'>BOX BOX: Tyre grip low. Recommend Pit Stop for {safe_compound}.</div>",
             unsafe_allow_html=True,
         )
 
@@ -258,7 +260,21 @@ def telemetry_center() -> None:
     driver_number = c1.text_input("Driver Number", value=str(DEFAULT_DRIVER_NUMBER))
     session_key = c2.text_input("Session Key", value=str(DEFAULT_SESSION_KEY))
 
-    params = {"session_key": int(session_key), "driver_number": int(driver_number), "limit": 200}
+    try:
+        driver_number_int = int(str(driver_number).strip())
+        session_key_int = int(str(session_key).strip())
+    except ValueError:
+        st.error("Driver Number and Session Key must be whole numbers.")
+        return
+
+    if not (1 <= driver_number_int <= 99):
+        st.error("Driver Number must be between 1 and 99.")
+        return
+    if session_key_int < 1:
+        st.error("Session Key must be a positive integer.")
+        return
+
+    params = {"session_key": session_key_int, "driver_number": driver_number_int, "limit": 200}
     raw_car, car_status = fetch_openf1("car_data", params)
     raw_loc, loc_status = fetch_openf1("location", params)
 
