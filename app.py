@@ -350,6 +350,152 @@ def telemetry_center() -> None:
     st.plotly_chart(track_fig, use_container_width=True)
 
 
+SYNTHETIC_DRIVERS = [
+    {"driver_number": 1, "name_acronym": "VER", "full_name": "Max Verstappen", "team_name": "Red Bull Racing", "team_colour": "3671C6"},
+    {"driver_number": 4, "name_acronym": "NOR", "full_name": "Lando Norris", "team_name": "McLaren", "team_colour": "FF8000"},
+    {"driver_number": 16, "name_acronym": "LEC", "full_name": "Charles Leclerc", "team_name": "Ferrari", "team_colour": "E80020"},
+    {"driver_number": 44, "name_acronym": "HAM", "full_name": "Lewis Hamilton", "team_name": "Mercedes", "team_colour": "27F4D2"},
+    {"driver_number": 63, "name_acronym": "RUS", "full_name": "George Russell", "team_name": "Mercedes", "team_colour": "27F4D2"},
+    {"driver_number": 81, "name_acronym": "PIA", "full_name": "Oscar Piastri", "team_name": "McLaren", "team_colour": "FF8000"},
+    {"driver_number": 55, "name_acronym": "SAI", "full_name": "Carlos Sainz", "team_name": "Ferrari", "team_colour": "E80020"},
+    {"driver_number": 14, "name_acronym": "ALO", "full_name": "Fernando Alonso", "team_name": "Aston Martin", "team_colour": "229971"},
+    {"driver_number": 11, "name_acronym": "PER", "full_name": "Sergio Perez", "team_name": "Red Bull Racing", "team_colour": "3671C6"},
+    {"driver_number": 22, "name_acronym": "TSU", "full_name": "Yuki Tsunoda", "team_name": "RB", "team_colour": "6692FF"},
+]
+
+
+def parse_drivers(raw: List[Dict]) -> List[Dict]:
+    drivers = []
+    seen = set()
+    for row in raw:
+        number = row.get("driver_number")
+        if number is None or number in seen:
+            continue
+        seen.add(number)
+        drivers.append(
+            {
+                "driver_number": int(number),
+                "name_acronym": str(row.get("name_acronym") or f"#{number}"),
+                "full_name": str(row.get("full_name") or row.get("broadcast_name") or f"Driver {number}"),
+                "team_name": str(row.get("team_name") or "Unknown Team"),
+                "team_colour": str(row.get("team_colour") or "9ca3af"),
+            }
+        )
+    return drivers
+
+
+def simulate_race(drivers: List[Dict], num_laps: int, base_lap_time: float = 90.0, seed: int = 7) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    rows = []
+    for idx, driver in enumerate(drivers):
+        pace_offset = 0.12 * idx + rng.normal(0.0, 0.15)
+        consistency = abs(rng.normal(0.35, 0.12))
+        for lap in range(1, num_laps + 1):
+            degradation = 0.045 * lap
+            noise = rng.normal(0.0, consistency)
+            lap_time = base_lap_time + pace_offset + degradation + noise
+            rows.append(
+                {
+                    "driver_number": driver["driver_number"],
+                    "name_acronym": driver["name_acronym"],
+                    "full_name": driver["full_name"],
+                    "team_name": driver["team_name"],
+                    "team_colour": driver["team_colour"],
+                    "lap_number": lap,
+                    "lap_time": lap_time,
+                }
+            )
+    race_df = pd.DataFrame(rows)
+    race_df["cumulative_time"] = race_df.groupby("driver_number")["lap_time"].cumsum()
+    race_df["position"] = race_df.groupby("lap_number")["cumulative_time"].rank(method="min").astype(int)
+    return race_df
+
+
+def racing_simulator() -> None:
+    st.subheader("MODULE 4: RACING SIMULATOR (GRID SHOOTOUT)")
+
+    use_real_drivers = st.toggle(
+        "Use real OpenF1 drivers",
+        value=False,
+        help="Off: run the simulation with built-in synthetic drivers. On: pull the actual driver grid from OpenF1.",
+    )
+
+    if use_real_drivers:
+        session_key = st.number_input(
+            "Session Key", min_value=1, value=DEFAULT_SESSION_KEY, step=1, key="race_session_key"
+        )
+        raw_drivers, status = fetch_openf1("drivers", {"session_key": int(session_key)})
+        drivers = parse_drivers(raw_drivers)
+        if drivers:
+            driver_source = "real OpenF1 grid"
+        else:
+            st.error(f"Drivers API failed ({status}). Falling back to synthetic drivers.")
+            drivers = SYNTHETIC_DRIVERS
+            driver_source = "synthetic fallback"
+    else:
+        drivers = SYNTHETIC_DRIVERS
+        driver_source = "synthetic drivers"
+
+    if not drivers:
+        st.warning("No drivers available to simulate.")
+        return
+
+    c1, c2 = st.columns(2)
+    grid_size = c1.slider("Grid Size", min_value=2, max_value=len(drivers), value=min(10, len(drivers)), step=1)
+    num_laps = c2.slider("Race Distance (laps)", min_value=3, max_value=70, value=20, step=1)
+
+    grid = drivers[:grid_size]
+    race_df = simulate_race(grid, num_laps)
+
+    st.caption(f"Driver source: {driver_source} · {grid_size} drivers · {num_laps} laps")
+
+    final_lap = race_df[race_df["lap_number"] == num_laps].sort_values("position")
+    winner = final_lap.iloc[0]
+    leader_time = winner["cumulative_time"]
+    podium = " · ".join(f"P{int(r.position)} {r.name_acronym}" for r in final_lap.head(3).itertuples())
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Winner", winner["name_acronym"])
+    m2.metric("Race Time (s)", f"{leader_time:.1f}")
+    m3.metric("Fastest Lap (s)", f"{race_df['lap_time'].min():.3f}")
+    st.markdown(f"**Podium:** {podium}")
+
+    color_map = {row["name_acronym"]: f"#{row['team_colour']}" for row in grid}
+
+    pos_fig = px.line(
+        race_df,
+        x="lap_number",
+        y="position",
+        color="name_acronym",
+        markers=False,
+        title="Race Positions by Lap",
+        template="plotly_dark",
+        color_discrete_map=color_map,
+    )
+    pos_fig.update_yaxes(autorange="reversed", dtick=1, title="Position")
+    pos_fig.update_xaxes(title="Lap")
+    st.plotly_chart(pos_fig, use_container_width=True)
+
+    standings = final_lap[["position", "name_acronym", "full_name", "team_name", "cumulative_time"]].copy()
+    standings["gap_to_leader"] = standings["cumulative_time"] - leader_time
+    standings = standings.rename(
+        columns={
+            "position": "Pos",
+            "name_acronym": "Driver",
+            "full_name": "Name",
+            "team_name": "Team",
+            "cumulative_time": "Total Time (s)",
+            "gap_to_leader": "Gap (s)",
+        }
+    )
+    standings["Total Time (s)"] = standings["Total Time (s)"].round(3)
+    standings["Gap (s)"] = standings["Gap (s)"].round(3)
+    st.dataframe(
+        standings[["Pos", "Driver", "Name", "Team", "Total Time (s)", "Gap (s)"]].set_index("Pos"),
+        use_container_width=True,
+    )
+
+
 def main() -> None:
     apply_theme()
     st.title("🏁 The Virtual Garage: An F1 Engineering Suite")
@@ -360,6 +506,7 @@ def main() -> None:
             "THE AI PIT WALL (STRATEGY ENGINE)",
             "SUSPENSION LAB (KINEMATICS SIMULATOR)",
             "TELEMETRY CENTER (REAL DATA VISUALIZER)",
+            "RACING SIMULATOR (GRID SHOOTOUT)",
         ],
     )
 
@@ -367,8 +514,10 @@ def main() -> None:
         strategy_engine()
     elif module.startswith("SUSPENSION LAB"):
         suspension_lab()
-    else:
+    elif module.startswith("TELEMETRY CENTER"):
         telemetry_center()
+    else:
+        racing_simulator()
 
 
 if __name__ == "__main__":
