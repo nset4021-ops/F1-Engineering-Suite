@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Virtual Garage: F1 Engineering Suite</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="dashboard-shell">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <p class="eyebrow">Staff Engineer Console</p>
+        <h1>The Virtual Garage</h1>
+        <p class="brand-copy">FastAPI telemetry, suspension kinematics, and pit wall strategy in one decoupled suite.</p>
+      </div>
+
+      <nav class="tab-list" aria-label="Dashboard sections">
+        <button class="tab-button active" data-tab="pitwallPanel" type="button">Pit Wall</button>
+        <button class="tab-button" data-tab="suspensionPanel" type="button">Suspension</button>
+        <button class="tab-button" data-tab="telemetryPanel" type="button">Telemetry</button>
+      </nav>
+
+      <div class="sidebar-card" id="connectionCard">
+        <span class="sidebar-label">API Status</span>
+        <strong id="apiStatus">Loading live OpenF1 feeds...</strong>
+        <p id="apiHint">Public data will fall back to deterministic mock data whenever OpenF1 is unavailable.</p>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="hero-panel">
+        <div>
+          <p class="eyebrow">Race Operations Dashboard</p>
+          <h2>Decoupled web suite for strategy, setup, and telemetry.</h2>
+        </div>
+        <div class="hero-metrics">
+          <div class="metric-card">
+            <span>Latency-aware</span>
+            <strong>FastAPI</strong>
+          </div>
+          <div class="metric-card">
+            <span>Visualization</span>
+            <strong>Plotly.js</strong>
+          </div>
+          <div class="metric-card">
+            <span>Data source</span>
+            <strong>OpenF1</strong>
+          </div>
+        </div>
+      </header>
+
+      <section class="panel active" id="pitwallPanel" aria-labelledby="pitwallTab">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Module 01</p>
+            <h3>Pit Wall Strategy</h3>
+          </div>
+          <div class="inline-meta">
+            <span id="pitwallSource">Source: loading</span>
+            <span id="pitwallCompound">Compound: -</span>
+          </div>
+        </div>
+        <div class="module-grid pitwall-grid">
+          <article class="module-card chart-card">
+            <div class="card-header">
+              <h4>Tire Decay Simulation</h4>
+              <p>Animated grip decay with live warning thresholds.</p>
+            </div>
+            <div id="pitwallChart" class="chart-surface"></div>
+          </article>
+          <aside class="module-card side-stack">
+            <div class="summary-grid">
+              <div class="summary-card">
+                <span>Latest Lap</span>
+                <strong id="pitwallLap">-</strong>
+              </div>
+              <div class="summary-card">
+                <span>Latest Grip</span>
+                <strong id="pitwallGrip">-</strong>
+              </div>
+              <div class="summary-card">
+                <span>Session Key</span>
+                <strong id="pitwallSession">-</strong>
+              </div>
+              <div class="summary-card warning-shell" id="pitwallWarningShell">
+                <span>Race Control</span>
+                <strong id="pitwallWarning">Awaiting telemetry</strong>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel" id="suspensionPanel" aria-labelledby="suspensionTab">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Module 02</p>
+            <h3>Suspension Lab</h3>
+          </div>
+          <div class="inline-meta">
+            <span id="suspensionSource">Source: loading</span>
+            <span id="camberOutput">Camber: -</span>
+          </div>
+        </div>
+
+        <div class="module-grid suspension-grid">
+          <article class="module-card">
+            <div class="controls-row">
+              <label class="control-block">
+                <span>Chassis Roll</span>
+                <input id="rollSlider" type="range" min="-5" max="5" step="0.1" value="0" />
+                <strong id="rollValue">0.0°</strong>
+              </label>
+              <label class="control-block">
+                <span>Wishbone Length</span>
+                <input id="wishboneSlider" type="range" min="300" max="500" step="1" value="420" />
+                <strong id="wishboneValue">420 mm</strong>
+              </label>
+            </div>
+            <div id="suspensionChart" class="chart-surface"></div>
+          </article>
+          <aside class="module-card side-stack">
+            <div class="summary-grid" id="suspensionMetrics"></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel" id="telemetryPanel" aria-labelledby="telemetryTab">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Module 03</p>
+            <h3>Telemetry Center</h3>
+          </div>
+          <div class="inline-meta">
+            <span id="telemetrySource">Source: loading</span>
+            <span id="telemetryCount">Samples: -</span>
+          </div>
+        </div>
+
+        <div class="module-grid telemetry-grid">
+          <article class="module-card chart-card tall-card">
+            <div class="card-header">
+              <h4>Aligned Performance Traces</h4>
+              <p>Speed, throttle, and brake share one X-axis across synchronized panes.</p>
+            </div>
+            <div id="telemetryChart" class="chart-surface chart-surface-large"></div>
+          </article>
+          <article class="module-card chart-card">
+            <div class="card-header">
+              <h4>Track Map</h4>
+              <p>2D circuit scatter plot color-coded by velocity.</p>
+            </div>
+            <div id="trackChart" class="chart-surface"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
