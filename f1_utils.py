@@ -1,7 +1,14 @@
+import logging
 import math
 from typing import Callable, Dict, List, Optional, Sequence
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+class RecordParseError(ValueError):
+    pass
 
 
 def extract_timestamp(record: Dict) -> Optional[object]:
@@ -33,12 +40,38 @@ def parse_records(
     columns: Sequence[str],
     sort_by: str,
     dropna_subset: Optional[Sequence[str]] = None,
+    record_name: str = "data",
 ) -> pd.DataFrame:
     """Apply ``row_builder`` to each raw record and assemble a sorted DataFrame.
 
     ``row_builder`` returns a row dict, or ``None`` to skip a record.
     """
-    rows = [built for record in raw if (built := row_builder(record)) is not None]
+    rows = []
+    invalid_count = 0
+    last_error = None
+    for record in raw:
+        try:
+            built = row_builder(record)
+        except (OverflowError, TypeError, ValueError) as exc:
+            invalid_count += 1
+            last_error = exc
+            continue
+        if built is None:
+            invalid_count += 1
+            continue
+        rows.append(built)
+
+    if invalid_count:
+        logger.warning(
+            "Ignored %d malformed records from %s",
+            invalid_count,
+            record_name,
+        )
+    if raw and not rows:
+        error = RecordParseError(f"{record_name} contained no valid records")
+        if last_error is not None:
+            raise error from last_error
+        raise error
     return frame_from_rows(rows, columns, sort_by, dropna_subset)
 
 
