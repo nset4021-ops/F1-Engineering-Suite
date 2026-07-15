@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Virtual Garage: An F1 Engineering Suite</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>🏁 The Virtual Garage: An F1 Engineering Suite</h1>
+    </header>
+
+    <nav class="modules">
+      <button class="module-tab active" data-module="strategy">The AI Pit Wall</button>
+      <button class="module-tab" data-module="suspension">Suspension Lab</button>
+      <button class="module-tab" data-module="telemetry">Telemetry Center</button>
+    </nav>
+
+    <main>
+      <!-- Strategy -->
+      <section id="strategy" class="module-panel active">
+        <h2>Module 1: The AI Pit Wall (Strategy Engine)</h2>
+        <div class="controls">
+          <label>Driver Number
+            <input type="number" id="strategy-driver" min="1" max="99" value="44" />
+          </label>
+          <label>Session Key
+            <input type="number" id="strategy-session" min="1" value="9839" />
+          </label>
+          <button id="strategy-run">Run</button>
+        </div>
+        <p class="caption" id="strategy-caption"></p>
+        <div id="strategy-warning" class="warning-box hidden"></div>
+        <div class="metrics" id="strategy-metrics"></div>
+        <div id="strategy-chart" class="chart"></div>
+      </section>
+
+      <!-- Suspension -->
+      <section id="suspension" class="module-panel">
+        <h2>Module 2: Suspension Lab (Kinematics Simulator)</h2>
+        <div class="controls">
+          <label>Chassis Roll Angle (°)
+            <input type="range" id="susp-roll" min="-5" max="5" step="0.1" value="0" />
+            <span id="susp-roll-val">0.0</span>
+          </label>
+          <label>Wishbone Length (mm)
+            <input type="range" id="susp-length" min="300" max="500" step="5" value="380" />
+            <span id="susp-length-val">380</span>
+          </label>
+        </div>
+        <div class="metrics" id="susp-metrics"></div>
+        <div class="chart-row">
+          <div id="susp-geometry" class="chart"></div>
+          <div id="susp-curve" class="chart"></div>
+        </div>
+      </section>
+
+      <!-- Telemetry -->
+      <section id="telemetry" class="module-panel">
+        <h2>Module 3: Telemetry Center (Real Data Visualizer)</h2>
+        <div class="controls">
+          <label>Driver Number
+            <input type="number" id="tel-driver" min="1" max="99" value="44" />
+          </label>
+          <label>Session Key
+            <input type="number" id="tel-session" min="1" value="9839" />
+          </label>
+          <button id="tel-run">Run</button>
+        </div>
+        <p class="caption" id="tel-caption"></p>
+        <div id="tel-trend" class="chart"></div>
+        <div id="tel-track" class="chart"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
