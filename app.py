@@ -18,7 +18,6 @@ COMPOUND_DEGRADATION = {
     "HARD": 2.3,
     "INTERMEDIATE": 3.8,
     "WET": 4.2,
-    "UNKNOWN": 3.5,
 }
 
 
@@ -48,9 +47,10 @@ def apply_theme() -> None:
 
 
 @st.cache_data(show_spinner=False, ttl=60)
-def fetch_openf1(endpoint: str, params: Dict[str, int]) -> Tuple[List[Dict], str]:
+def fetch_openf1(endpoint: str, session_key: int, driver_number: int) -> Tuple[List[Dict], str]:
+    url = f"{OPENF1_BASE}/{endpoint}?session_key={session_key}&driver_number={driver_number}"
     try:
-        response = requests.get(f"{OPENF1_BASE}/{endpoint}", params=params, timeout=10)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, list) or len(payload) == 0:
@@ -58,6 +58,21 @@ def fetch_openf1(endpoint: str, params: Dict[str, int]) -> Tuple[List[Dict], str
         return payload, "real"
     except (requests.RequestException, ValueError) as exc:
         return [], str(exc)
+
+
+def synthetic_session_dataframe(points: int = 300) -> pd.DataFrame:
+    t = np.arange(points)
+    theta = np.linspace(0, 2 * np.pi, points)
+    return pd.DataFrame(
+        {
+            "date": pd.date_range("2026-01-01", periods=points, freq="2s"),
+            "speed": 235 + 55 * np.sin(t / 15),
+            "throttle": np.clip(68 + 28 * np.sin(t / 11), 0, 100),
+            "brake": np.clip(100 - np.clip(68 + 28 * np.sin(t / 11), 0, 100), 0, 100),
+            "x": 1400 * np.cos(theta) + 120 * np.cos(3 * theta),
+            "y": 900 * np.sin(theta) + 90 * np.sin(4 * theta),
+        }
+    )
 
 
 def mock_lap_data() -> List[Dict]:
@@ -68,32 +83,15 @@ def mock_lap_data() -> List[Dict]:
     ]
 
 
-def mock_car_data() -> pd.DataFrame:
-    points = 200
-    t = np.arange(points)
-    speed = 235 + 55 * np.sin(t / 15)
-    throttle = np.clip(68 + 28 * np.sin(t / 11), 0, 100)
-    brake = (throttle < 60).astype(int) * np.clip(100 - throttle, 0, 100)
-    return pd.DataFrame(
-        {
-            "timestamp": pd.date_range("2026-01-01", periods=points, freq="2s"),
-            "speed": speed,
-            "throttle": throttle,
-            "brake": brake,
-        }
-    )
-
-
-def mock_location_data() -> pd.DataFrame:
-    points = 200
-    theta = np.linspace(0, 2 * np.pi, points)
-    return pd.DataFrame(
-        {
-            "timestamp": pd.date_range("2026-01-01", periods=points, freq="2s"),
-            "x": 1400 * np.cos(theta) + 120 * np.cos(3 * theta),
-            "y": 900 * np.sin(theta) + 90 * np.sin(4 * theta),
-        }
-    )
+def normalize_date_column(df: pd.DataFrame) -> pd.DataFrame:
+    if "date" not in df.columns:
+        return df
+    df = df.copy()
+    try:
+        df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_localize(None)
+    except (TypeError, ValueError):
+        df["date"] = pd.to_datetime(df["date"], utc=True, errors="coerce").dt.tz_localize(None)
+    return df
 
 
 def parse_laps(raw_laps: List[Dict]) -> pd.DataFrame:
@@ -101,11 +99,106 @@ def parse_laps(raw_laps: List[Dict]) -> pd.DataFrame:
     for row in raw_laps:
         lap_time = row.get("lap_duration") or row.get("lap_time")
         lap_no = row.get("lap_number")
-        compound = row.get("compound") or row.get("tyre_compound") or row.get("stint_compound") or "UNKNOWN"
+        compound = row.get("compound") or row.get("tyre_compound") or row.get("stint_compound")
         if lap_time is None or lap_no is None:
             continue
-        rows.append({"lap_number": int(lap_no), "lap_time": float(lap_time), "compound": str(compound).upper()})
-    return pd.DataFrame(rows).sort_values("lap_number") if rows else pd.DataFrame(columns=["lap_number", "lap_time", "compound"])
+        rows.append(
+            {
+                "lap_number": int(lap_no),
+                "lap_time": float(lap_time),
+                "compound": compound,
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(columns=["lap_number", "lap_time", "compound"])
+
+    df = pd.DataFrame(rows).sort_values("lap_number")
+    df["compound"] = (
+        df["compound"]
+        .fillna("MEDIUM")
+        .astype(str)
+        .str.upper()
+        .str.strip()
+        .replace({"": "MEDIUM", "NAN": "MEDIUM", "NONE": "MEDIUM"})
+    )
+    return df
+
+
+def parse_car_data(raw: List[Dict]) -> pd.DataFrame:
+    rows = []
+    for point in raw:
+        ts = point.get("date") or point.get("timestamp")
+        speed = point.get("speed")
+        throttle = point.get("throttle")
+        brake = point.get("brake")
+        if ts is None or speed is None or throttle is None or brake is None:
+            continue
+        rows.append(
+            {
+                "date": ts,
+                "speed": float(speed),
+                "throttle": float(throttle),
+                "brake": float(brake),
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(columns=["date", "speed", "throttle", "brake"])
+
+    df = pd.DataFrame(rows)
+    df = normalize_date_column(df)
+    return df.dropna(subset=["date"]).sort_values("date")
+
+
+def parse_location_data(raw: List[Dict]) -> pd.DataFrame:
+    rows = []
+    for point in raw:
+        ts = point.get("date") or point.get("timestamp")
+        x, y = point.get("x"), point.get("y")
+        if ts is None or x is None or y is None:
+            continue
+        rows.append({"date": ts, "x": float(x), "y": float(y)})
+
+    if not rows:
+        return pd.DataFrame(columns=["date", "x", "y"])
+
+    df = pd.DataFrame(rows)
+    df = normalize_date_column(df)
+    return df.dropna(subset=["date"]).sort_values("date")
+
+
+def get_lap_window(raw_laps: List[Dict]) -> Tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    if not raw_laps:
+        return None, None
+
+    starts = []
+    ends = []
+    for row in raw_laps:
+        start = row.get("date_start") or row.get("lap_start_date")
+        end = row.get("date_end")
+        if start:
+            starts.append(start)
+        if end:
+            ends.append(end)
+
+    start_ts = pd.to_datetime(starts, utc=True, errors="coerce") if starts else pd.Series(dtype="datetime64[ns, UTC]")
+    end_ts = pd.to_datetime(ends, utc=True, errors="coerce") if ends else pd.Series(dtype="datetime64[ns, UTC]")
+
+    valid_start = start_ts.min() if len(start_ts) else pd.NaT
+    valid_end = end_ts.max() if len(end_ts) else pd.NaT
+
+    if pd.isna(valid_start):
+        valid_start = None
+    else:
+        valid_start = valid_start.tz_localize(None)
+
+    if pd.isna(valid_end):
+        valid_end = None
+    else:
+        valid_end = valid_end.tz_localize(None)
+
+    return valid_start, valid_end
 
 
 def strategy_engine() -> None:
@@ -114,21 +207,21 @@ def strategy_engine() -> None:
     driver_number = c1.number_input("Driver Number", min_value=1, max_value=99, value=DEFAULT_DRIVER_NUMBER, step=1)
     session_key = c2.number_input("Session Key", min_value=1, value=DEFAULT_SESSION_KEY, step=1)
 
-    raw_laps, status = fetch_openf1("laps", {"session_key": int(session_key), "driver_number": int(driver_number)})
+    raw_laps, status = fetch_openf1("laps", int(session_key), int(driver_number))
     if raw_laps:
         laps_df = parse_laps(raw_laps)
         data_source = "real OpenF1 telemetry"
     else:
-        st.error(f"Lap API failed ({status}). Switching to built-in mock laps.")
+        st.error(f"Lap API failed ({status}). Switching to built-in synthetic laps.")
         laps_df = parse_laps(mock_lap_data())
-        data_source = "mock fallback"
+        data_source = "synthetic fallback"
 
     if laps_df.empty:
         st.warning("No lap data available for strategy simulation.")
         return
 
-    current_compound = laps_df["compound"].iloc[-1] if not laps_df.empty else "UNKNOWN"
-    deg_rate = COMPOUND_DEGRADATION.get(current_compound, COMPOUND_DEGRADATION["UNKNOWN"])
+    current_compound = laps_df["compound"].iloc[-1] if not laps_df.empty else "MEDIUM"
+    deg_rate = COMPOUND_DEGRADATION.get(current_compound, COMPOUND_DEGRADATION["MEDIUM"])
 
     lap_index = np.arange(len(laps_df))
     baseline = laps_df["lap_time"].iloc[0]
@@ -167,7 +260,6 @@ def compute_wishbone_geometry(roll_angle_deg: float, wishbone_length_mm: float) 
 
     chassis_y = 360
     chassis_half_width = 200
-    upright_height = 140
     wheel_x = 400 + wheel_center_shift * 0.45
 
     geometry = pd.DataFrame(
@@ -219,69 +311,65 @@ def suspension_lab() -> None:
         st.plotly_chart(camber_fig, use_container_width=True)
 
 
-def parse_car_data(raw: List[Dict]) -> pd.DataFrame:
-    rows = []
-    for point in raw:
-        ts = point.get("date") or point.get("timestamp")
-        speed = point.get("speed")
-        throttle = point.get("throttle")
-        brake = point.get("brake")
-        if ts is None or speed is None or throttle is None or brake is None:
-            continue
-        rows.append(
-            {
-                "timestamp": pd.to_datetime(ts, utc=True, errors="coerce"),
-                "speed": float(speed),
-                "throttle": float(throttle),
-                "brake": float(brake),
-            }
-        )
-    df = pd.DataFrame(rows)
-    return df.dropna(subset=["timestamp"]).sort_values("timestamp") if not df.empty else pd.DataFrame(columns=["timestamp", "speed", "throttle", "brake"])
-
-
-def parse_location_data(raw: List[Dict]) -> pd.DataFrame:
-    rows = []
-    for point in raw:
-        ts = point.get("date") or point.get("timestamp")
-        x, y = point.get("x"), point.get("y")
-        if ts is None or x is None or y is None:
-            continue
-        rows.append({"timestamp": pd.to_datetime(ts, utc=True, errors="coerce"), "x": float(x), "y": float(y)})
-    df = pd.DataFrame(rows)
-    return df.dropna(subset=["timestamp"]).sort_values("timestamp") if not df.empty else pd.DataFrame(columns=["timestamp", "x", "y"])
-
-
 def telemetry_center() -> None:
     st.subheader("MODULE 3: TELEMETRY CENTER (REAL DATA VISUALIZER)")
     c1, c2 = st.columns(2)
     driver_number = c1.text_input("Driver Number", value=str(DEFAULT_DRIVER_NUMBER))
     session_key = c2.text_input("Session Key", value=str(DEFAULT_SESSION_KEY))
 
-    params = {"session_key": int(session_key), "driver_number": int(driver_number), "limit": 200}
-    raw_car, car_status = fetch_openf1("car_data", params)
-    raw_loc, loc_status = fetch_openf1("location", params)
+    try:
+        session_key_int = int(session_key)
+        driver_number_int = int(driver_number)
+    except ValueError:
+        st.error("Session key and driver number must be valid integers.")
+        return
 
-    if raw_car and raw_loc:
-        car_df = parse_car_data(raw_car)
-        loc_df = parse_location_data(raw_loc)
-        source = "real OpenF1 telemetry"
-    else:
-        st.error(
-            f"Telemetry API failed (car_data: {car_status}; location: {loc_status}). Switching to built-in mock telemetry."
-        )
-        car_df = mock_car_data()
-        loc_df = mock_location_data()
-        source = "mock fallback"
+    raw_laps, laps_status = fetch_openf1("laps", session_key_int, driver_number_int)
+    raw_car, car_status = fetch_openf1("car_data", session_key_int, driver_number_int)
+    raw_loc, loc_status = fetch_openf1("location", session_key_int, driver_number_int)
+
+    try:
+        if raw_car and raw_loc:
+            car_df = parse_car_data(raw_car)
+            loc_df = parse_location_data(raw_loc)
+            source = "real OpenF1 telemetry"
+
+            lap_start, lap_end = get_lap_window(raw_laps)
+            if lap_start is not None:
+                car_df = car_df[car_df["date"] >= lap_start]
+                loc_df = loc_df[loc_df["date"] >= lap_start]
+            if lap_end is not None:
+                car_df = car_df[car_df["date"] <= lap_end]
+                loc_df = loc_df[loc_df["date"] <= lap_end]
+
+            car_df = car_df.head(200)
+            loc_df = loc_df.head(200)
+        else:
+            raise ValueError(f"car_data: {car_status}; location: {loc_status}; laps: {laps_status}")
+    except Exception as exc:
+        st.error(f"Telemetry API failed ({exc}). Switching to built-in synthetic telemetry.")
+        synthetic_df = synthetic_session_dataframe(points=200)
+        car_df = synthetic_df[["date", "speed", "throttle", "brake"]].copy()
+        loc_df = synthetic_df[["date", "x", "y"]].copy()
+        source = "synthetic fallback"
+
+    car_df = normalize_date_column(car_df)
+    loc_df = normalize_date_column(loc_df)
+
+    car_df = car_df.dropna(subset=["date"])
+    loc_df = loc_df.dropna(subset=["date"])
+
+    car_df = car_df.sort_values("date")
+    loc_df = loc_df.sort_values("date")
 
     if car_df.empty or loc_df.empty:
         st.warning("No telemetry data available for visualization.")
         return
 
     merged = pd.merge_asof(
-        car_df.sort_values("timestamp"),
-        loc_df.sort_values("timestamp"),
-        on="timestamp",
+        car_df,
+        loc_df,
+        on="date",
         direction="nearest",
         tolerance=pd.Timedelta(seconds=2),
     ).dropna(subset=["x", "y"])
@@ -292,13 +380,13 @@ def telemetry_center() -> None:
 
     st.caption(f"Data source: {source}")
 
-    trend_df = merged[["timestamp", "speed", "throttle", "brake"]].copy()
-    trend_df["timestamp"] = trend_df["timestamp"].dt.tz_convert(None)
-    trend_long = trend_df.melt(id_vars=["timestamp"], var_name="Signal", value_name="Value")
+    trend_long = merged[["date", "speed", "throttle", "brake"]].melt(
+        id_vars=["date"], var_name="Signal", value_name="Value"
+    )
 
     trend_fig = px.line(
         trend_long,
-        x="timestamp",
+        x="date",
         y="Value",
         color="Signal",
         template="plotly_dark",
@@ -315,7 +403,7 @@ def telemetry_center() -> None:
         color_continuous_scale=[(0.0, "#ef4444"), (0.5, "#fbbf24"), (1.0, "#22c55e")],
         title="Track Map (Red = Braking, Green = Acceleration)",
         template="plotly_dark",
-        hover_data={"speed": True, "throttle": True, "brake": True, "x": ':.1f', "y": ':.1f'},
+        hover_data={"speed": True, "throttle": True, "brake": True, "x": ":.1f", "y": ":.1f"},
     )
     track_fig.update_traces(marker=dict(size=8, opacity=0.85))
     track_fig.update_layout(yaxis=dict(scaleanchor="x", scaleratio=1))
