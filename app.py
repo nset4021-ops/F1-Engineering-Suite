@@ -1,4 +1,4 @@
-import logging
+import html
 import math
 from typing import Dict, List, Tuple
 
@@ -9,11 +9,11 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
+from f1_utils import RecordParseError, camber_change_deg, extract_timestamp, parse_records
+
 OPENF1_BASE = "https://api.openf1.org/v1"
 DEFAULT_SESSION_KEY = 9839
 DEFAULT_DRIVER_NUMBER = 44
-
-logger = logging.getLogger(__name__)
 
 COMPOUND_DEGRADATION = {
     "SOFT": 4.8,
@@ -116,39 +116,29 @@ def mock_location_data() -> pd.DataFrame:
     )
 
 
-def parse_laps(raw_laps: List[Dict]) -> pd.DataFrame:
-    rows = []
-    invalid_rows = 0
-    for row in raw_laps:
-        lap_time = row.get("lap_duration") or row.get("lap_time")
-        lap_no = row.get("lap_number")
-        compound = row.get("compound") or row.get("tyre_compound") or row.get("stint_compound") or "UNKNOWN"
-        if lap_time is None or lap_no is None:
-            invalid_rows += 1
-            continue
-        try:
-            parsed_lap_time = float(lap_time)
-            parsed_lap_no = int(lap_no)
-            if not math.isfinite(parsed_lap_time):
-                raise ValueError("lap time must be finite")
-            rows.append(
-                {
-                    "lap_number": parsed_lap_no,
-                    "lap_time": parsed_lap_time,
-                    "compound": str(compound).upper(),
-                }
-            )
-        except (TypeError, ValueError):
-            invalid_rows += 1
+def _lap_row(row: Dict) -> Dict:
+    lap_time = row.get("lap_duration") or row.get("lap_time")
+    lap_no = row.get("lap_number")
+    compound = row.get("compound") or row.get("tyre_compound") or row.get("stint_compound") or "UNKNOWN"
+    if lap_time is None or lap_no is None:
+        return None
+    parsed_lap_time = float(lap_time)
+    if not math.isfinite(parsed_lap_time):
+        raise ValueError("lap time must be finite")
+    return {
+        "lap_number": int(lap_no),
+        "lap_time": parsed_lap_time,
+        "compound": str(compound).upper(),
+    }
 
-    if invalid_rows:
-        logger.warning("Ignored %d malformed lap records", invalid_rows)
-    if raw_laps and not rows:
-        raise OpenF1DataError("lap data contained no valid records")
-    return (
-        pd.DataFrame(rows).sort_values("lap_number")
-        if rows
-        else pd.DataFrame(columns=["lap_number", "lap_time", "compound"])
+
+def parse_laps(raw_laps: List[Dict]) -> pd.DataFrame:
+    return parse_records(
+        raw_laps,
+        _lap_row,
+        ["lap_number", "lap_time", "compound"],
+        "lap_number",
+        record_name="lap data",
     )
 
 
@@ -165,7 +155,7 @@ def strategy_engine() -> None:
         )
         laps_df = parse_laps(raw_laps)
         data_source = "real OpenF1 telemetry"
-    except OpenF1Error as exc:
+    except (OpenF1Error, RecordParseError) as exc:
         st.error(f"OpenF1 lap data unavailable ({exc}). Switching to built-in mock laps.")
         laps_df = parse_laps(mock_lap_data())
         data_source = "mock fallback"
@@ -190,8 +180,9 @@ def strategy_engine() -> None:
     m3.metric("Theoretical Grip (%)", f"{laps_df['theoretical_grip'].iloc[-1]:.1f}")
 
     if laps_df["theoretical_grip"].iloc[-1] < 45:
+        safe_compound = html.escape(str(current_compound))
         st.markdown(
-            f"<div class='warning-box'>BOX BOX: Tyre grip low. Recommend Pit Stop for {current_compound}.</div>",
+            f"<div class='warning-box'>BOX BOX: Tyre grip low. Recommend Pit Stop for {safe_compound}.</div>",
             unsafe_allow_html=True,
         )
 
@@ -208,9 +199,8 @@ def strategy_engine() -> None:
 
 
 def compute_wishbone_geometry(roll_angle_deg: float, wishbone_length_mm: float) -> Tuple[pd.DataFrame, float]:
-    roll_rad = math.radians(roll_angle_deg)
-    wheel_center_shift = wishbone_length_mm * math.sin(roll_rad)
-    camber_change_deg = -math.degrees(math.atan2(wheel_center_shift, wishbone_length_mm))
+    wheel_center_shift = wishbone_length_mm * math.sin(math.radians(roll_angle_deg))
+    camber_change = camber_change_deg(roll_angle_deg, wishbone_length_mm)
 
     chassis_y = 360
     chassis_half_width = 200
@@ -224,7 +214,7 @@ def compute_wishbone_geometry(roll_angle_deg: float, wishbone_length_mm: float) 
             "segment": ["chassis", "upper arm", "upright", "upright", "lower arm", "chassis"],
         }
     )
-    return geometry, camber_change_deg
+    return geometry, camber_change
 
 
 def suspension_lab() -> None:
@@ -260,90 +250,68 @@ def suspension_lab() -> None:
 
     with col2:
         roll_range = np.linspace(-5, 5, 80)
-        camber_series = [-math.degrees(math.atan2(wishbone_length * math.sin(math.radians(r)), wishbone_length)) for r in roll_range]
+        camber_series = [camber_change_deg(r, wishbone_length) for r in roll_range]
         camber_df = pd.DataFrame({"Roll Angle": roll_range, "Camber Change": camber_series})
         camber_fig = px.line(camber_df, x="Roll Angle", y="Camber Change", title="Camber Change vs. Roll Angle", template="plotly_dark")
         st.plotly_chart(camber_fig, use_container_width=True)
 
 
-def parse_car_data(raw: List[Dict]) -> pd.DataFrame:
-    rows = []
-    invalid_rows = 0
-    for point in raw:
-        ts = point.get("date") or point.get("timestamp")
-        speed = point.get("speed")
-        throttle = point.get("throttle")
-        brake = point.get("brake")
-        if ts is None or speed is None or throttle is None or brake is None:
-            invalid_rows += 1
-            continue
-        try:
-            timestamp = pd.to_datetime(ts, utc=True)
-            parsed_speed = float(speed)
-            parsed_throttle = float(throttle)
-            parsed_brake = float(brake)
-            if pd.isna(timestamp) or not all(
-                math.isfinite(value)
-                for value in (parsed_speed, parsed_throttle, parsed_brake)
-            ):
-                raise ValueError("telemetry values must be valid")
-            rows.append(
-                {
-                    "timestamp": timestamp,
-                    "speed": parsed_speed,
-                    "throttle": parsed_throttle,
-                    "brake": parsed_brake,
-                }
-            )
-        except (TypeError, ValueError):
-            invalid_rows += 1
+def _car_row(point: Dict) -> Dict:
+    ts = extract_timestamp(point)
+    speed = point.get("speed")
+    throttle = point.get("throttle")
+    brake = point.get("brake")
+    if ts is None or speed is None or throttle is None or brake is None:
+        return None
+    timestamp = pd.to_datetime(ts, utc=True)
+    parsed_speed = float(speed)
+    parsed_throttle = float(throttle)
+    parsed_brake = float(brake)
+    if pd.isna(timestamp) or not all(
+        math.isfinite(value)
+        for value in (parsed_speed, parsed_throttle, parsed_brake)
+    ):
+        raise ValueError("telemetry values must be valid")
+    return {
+        "timestamp": timestamp,
+        "speed": parsed_speed,
+        "throttle": parsed_throttle,
+        "brake": parsed_brake,
+    }
 
-    if invalid_rows:
-        logger.warning("Ignored %d malformed car telemetry records", invalid_rows)
-    if raw and not rows:
-        raise OpenF1DataError("car telemetry contained no valid records")
-    return (
-        pd.DataFrame(rows).sort_values("timestamp")
-        if rows
-        else pd.DataFrame(columns=["timestamp", "speed", "throttle", "brake"])
+
+def parse_car_data(raw: List[Dict]) -> pd.DataFrame:
+    return parse_records(
+        raw,
+        _car_row,
+        ["timestamp", "speed", "throttle", "brake"],
+        "timestamp",
+        record_name="car telemetry",
     )
 
 
-def parse_location_data(raw: List[Dict]) -> pd.DataFrame:
-    rows = []
-    invalid_rows = 0
-    for point in raw:
-        ts = point.get("date") or point.get("timestamp")
-        x, y = point.get("x"), point.get("y")
-        if ts is None or x is None or y is None:
-            invalid_rows += 1
-            continue
-        try:
-            timestamp = pd.to_datetime(ts, utc=True)
-            parsed_x = float(x)
-            parsed_y = float(y)
-            if pd.isna(timestamp) or not all(
-                math.isfinite(value) for value in (parsed_x, parsed_y)
-            ):
-                raise ValueError("location values must be valid")
-            rows.append(
-                {
-                    "timestamp": timestamp,
-                    "x": parsed_x,
-                    "y": parsed_y,
-                }
-            )
-        except (TypeError, ValueError):
-            invalid_rows += 1
+def _location_row(point: Dict) -> Dict:
+    ts = extract_timestamp(point)
+    x, y = point.get("x"), point.get("y")
+    if ts is None or x is None or y is None:
+        return None
+    timestamp = pd.to_datetime(ts, utc=True)
+    parsed_x = float(x)
+    parsed_y = float(y)
+    if pd.isna(timestamp) or not all(
+        math.isfinite(value) for value in (parsed_x, parsed_y)
+    ):
+        raise ValueError("location values must be valid")
+    return {"timestamp": timestamp, "x": parsed_x, "y": parsed_y}
 
-    if invalid_rows:
-        logger.warning("Ignored %d malformed location records", invalid_rows)
-    if raw and not rows:
-        raise OpenF1DataError("location data contained no valid records")
-    return (
-        pd.DataFrame(rows).sort_values("timestamp")
-        if rows
-        else pd.DataFrame(columns=["timestamp", "x", "y"])
+
+def parse_location_data(raw: List[Dict]) -> pd.DataFrame:
+    return parse_records(
+        raw,
+        _location_row,
+        ["timestamp", "x", "y"],
+        "timestamp",
+        record_name="location data",
     )
 
 
@@ -354,14 +322,20 @@ def telemetry_center() -> None:
     session_key = c2.text_input("Session Key", value=str(DEFAULT_SESSION_KEY))
 
     try:
-        params = {
-            "session_key": int(session_key),
-            "driver_number": int(driver_number),
-            "limit": 200,
-        }
+        driver_number_int = int(str(driver_number).strip())
+        session_key_int = int(str(session_key).strip())
     except ValueError:
-        st.error("Driver Number and Session Key must be integers.")
+        st.error("Driver Number and Session Key must be whole numbers.")
         return
+
+    if not (1 <= driver_number_int <= 99):
+        st.error("Driver Number must be between 1 and 99.")
+        return
+    if session_key_int < 1:
+        st.error("Session Key must be a positive integer.")
+        return
+
+    params = {"session_key": session_key_int, "driver_number": driver_number_int, "limit": 200}
 
     try:
         raw_car = fetch_openf1("car_data", params)
@@ -369,7 +343,7 @@ def telemetry_center() -> None:
         car_df = parse_car_data(raw_car)
         loc_df = parse_location_data(raw_loc)
         source = "real OpenF1 telemetry"
-    except OpenF1Error as exc:
+    except (OpenF1Error, RecordParseError) as exc:
         st.error(
             f"OpenF1 telemetry unavailable ({exc}). Switching to built-in mock telemetry."
         )
