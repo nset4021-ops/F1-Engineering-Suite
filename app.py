@@ -291,6 +291,31 @@ def parse_location_data(raw: List[Dict]) -> pd.DataFrame:
     return result
 
 
+def get_lap_window(raw_laps: List[Dict]) -> Tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    if not raw_laps:
+        return None, None
+    starts = [r.get("date_start") or r.get("lap_start_date") for r in raw_laps]
+    ends = [r.get("date_end") for r in raw_laps]
+    start_ts = pd.to_datetime([s for s in starts if s], utc=True, errors="coerce")
+    end_ts = pd.to_datetime([e for e in ends if e], utc=True, errors="coerce")
+    window_start = start_ts.min() if len(start_ts) else pd.NaT
+    window_end = end_ts.max() if len(end_ts) else pd.NaT
+    return (
+        None if pd.isna(window_start) else window_start,
+        None if pd.isna(window_end) else window_end,
+    )
+
+
+def clip_to_lap_window(df: pd.DataFrame, start: pd.Timestamp | None, end: pd.Timestamp | None) -> pd.DataFrame:
+    if df.empty or "timestamp" not in df.columns:
+        return df
+    if start is not None:
+        df = df[df["timestamp"] >= start]
+    if end is not None:
+        df = df[df["timestamp"] <= end]
+    return df
+
+
 def ensure_telemetry_frames(car_df: pd.DataFrame, loc_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, str]:
     if len(car_df) < 60 or len(loc_df) < 60:
         fallback_car, fallback_loc = generate_fallback_telemetry()
@@ -327,16 +352,12 @@ def strategy_engine() -> None:
         st.session_state.race_clock_last_tick = time.time()
 
     now = time.time()
-    elapsed = max(0, int(now - st.session_state.race_clock_last_tick))
-    if auto_tick and elapsed > 0:
+    elapsed = max(0.0, now - st.session_state.race_clock_last_tick)
+    st.session_state.race_clock_last_tick = now
+    if auto_tick:
         st.session_state.race_clock_s += elapsed * int(tick_step)
-        st.session_state.race_clock_last_tick = now
-        st.rerun()
-    elif not auto_tick and controls[4].button("Advance Clock", use_container_width=True):
+    elif controls[4].button("Advance Clock", use_container_width=True):
         st.session_state.race_clock_s += int(tick_step)
-        st.session_state.race_clock_last_tick = now
-    else:
-        st.session_state.race_clock_last_tick = now
 
     raw_laps, status = fetch_openf1("laps", {"session_key": int(session_key), "driver_number": int(driver_number)})
     laps_df = parse_laps(raw_laps)
@@ -349,10 +370,11 @@ def strategy_engine() -> None:
     compound = laps_df["compound"].iloc[-1]
     deg_rate = COMPOUND_DEGRADATION.get(compound, COMPOUND_DEGRADATION["UNKNOWN"])
 
-    lap_idx = np.arange(len(laps_df))
+    lap_numbers = laps_df["lap_number"].to_numpy()
+    laps_elapsed = lap_numbers - lap_numbers[0]
     baseline = laps_df["lap_time"].iloc[:3].mean() if len(laps_df) >= 3 else laps_df["lap_time"].iloc[0]
     lap_drift = np.maximum(laps_df["lap_time"].to_numpy() - baseline, 0)
-    laps_df["grip_pct"] = np.clip(100 - deg_rate * lap_idx - 2.4 * lap_drift, 0, 100)
+    laps_df["grip_pct"] = np.clip(100 - deg_rate * laps_elapsed - 2.4 * lap_drift, 0, 100)
     laps_df["cumulative_time_s"] = laps_df["lap_time"].cumsum()
 
     mm, ss = divmod(int(st.session_state.race_clock_s), 60)
@@ -555,7 +577,9 @@ def telemetry_center() -> None:
     driver_number = c1.number_input("Driver Number", min_value=1, max_value=99, value=DEFAULT_DRIVER_NUMBER, step=1)
     session_key = c2.number_input("Session Key", min_value=1, value=DEFAULT_SESSION_KEY, step=1)
 
+    lap_params = {"session_key": int(session_key), "driver_number": int(driver_number)}
     params = {"session_key": int(session_key), "driver_number": int(driver_number), "limit": 2500}
+    raw_laps, _ = fetch_openf1("laps", lap_params)
     raw_car, car_status = fetch_openf1("car_data", params)
     raw_loc, loc_status = fetch_openf1("location", params)
 
@@ -567,6 +591,11 @@ def telemetry_center() -> None:
         car_df, loc_df = generate_fallback_telemetry()
         source = f"mock fallback (car_data: {car_status}; location: {loc_status})"
     else:
+        lap_start, lap_end = get_lap_window(raw_laps)
+        trimmed_car = clip_to_lap_window(car_df, lap_start, lap_end)
+        trimmed_loc = clip_to_lap_window(loc_df, lap_start, lap_end)
+        if not trimmed_car.empty and not trimmed_loc.empty:
+            car_df, loc_df = trimmed_car, trimmed_loc
         car_df, loc_df, source = ensure_telemetry_frames(car_df, loc_df)
 
     merged = pd.merge_asof(
