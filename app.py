@@ -127,11 +127,12 @@ def apply_theme() -> None:
 
 
 def themed_layout(fig: go.Figure, title: str | None = None) -> go.Figure:
+    is_dark = str(st.get_option("theme.base") or "light").lower() == "dark"
     fig.update_layout(
-        template="plotly_white",
+        template="plotly_dark" if is_dark else "plotly_white",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="var(--st-text-color)"),
+        font=dict(color="#e5e7eb" if is_dark else "#111827"),
         legend=dict(bgcolor="rgba(0,0,0,0)"),
         margin=dict(l=48, r=24, t=62 if title else 28, b=45),
     )
@@ -193,11 +194,15 @@ def parse_laps(raw_laps: List[Dict]) -> pd.DataFrame:
     df = pd.DataFrame(raw_laps)
     lap_col = "lap_duration" if "lap_duration" in df.columns else "lap_time"
     compound_col = next((c for c in ["compound", "tyre_compound", "stint_compound"] if c in df.columns), None)
+    if compound_col is not None:
+        compound = df[compound_col].fillna("UNKNOWN").astype(str).str.upper()
+    else:
+        compound = "UNKNOWN"
     result = pd.DataFrame(
         {
             "lap_number": pd.to_numeric(df.get("lap_number"), errors="coerce"),
             "lap_time": pd.to_numeric(df.get(lap_col), errors="coerce"),
-            "compound": df.get(compound_col, "UNKNOWN").fillna("UNKNOWN").astype(str).str.upper(),
+            "compound": compound,
         }
     )
     result = result.dropna(subset=["lap_number", "lap_time"]).copy()
