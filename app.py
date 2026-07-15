@@ -8,6 +8,8 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
+from f1_utils import camber_change_deg, extract_timestamp, parse_records
+
 OPENF1_BASE = "https://api.openf1.org/v1"
 DEFAULT_SESSION_KEY = 9839
 DEFAULT_DRIVER_NUMBER = 44
@@ -96,16 +98,17 @@ def mock_location_data() -> pd.DataFrame:
     )
 
 
+def _lap_row(row: Dict) -> Dict:
+    lap_time = row.get("lap_duration") or row.get("lap_time")
+    lap_no = row.get("lap_number")
+    compound = row.get("compound") or row.get("tyre_compound") or row.get("stint_compound") or "UNKNOWN"
+    if lap_time is None or lap_no is None:
+        return None
+    return {"lap_number": int(lap_no), "lap_time": float(lap_time), "compound": str(compound).upper()}
+
+
 def parse_laps(raw_laps: List[Dict]) -> pd.DataFrame:
-    rows = []
-    for row in raw_laps:
-        lap_time = row.get("lap_duration") or row.get("lap_time")
-        lap_no = row.get("lap_number")
-        compound = row.get("compound") or row.get("tyre_compound") or row.get("stint_compound") or "UNKNOWN"
-        if lap_time is None or lap_no is None:
-            continue
-        rows.append({"lap_number": int(lap_no), "lap_time": float(lap_time), "compound": str(compound).upper()})
-    return pd.DataFrame(rows).sort_values("lap_number") if rows else pd.DataFrame(columns=["lap_number", "lap_time", "compound"])
+    return parse_records(raw_laps, _lap_row, ["lap_number", "lap_time", "compound"], "lap_number")
 
 
 def strategy_engine() -> None:
@@ -161,9 +164,8 @@ def strategy_engine() -> None:
 
 
 def compute_wishbone_geometry(roll_angle_deg: float, wishbone_length_mm: float) -> Tuple[pd.DataFrame, float]:
-    roll_rad = math.radians(roll_angle_deg)
-    wheel_center_shift = wishbone_length_mm * math.sin(roll_rad)
-    camber_change_deg = -math.degrees(math.atan2(wheel_center_shift, wishbone_length_mm))
+    wheel_center_shift = wishbone_length_mm * math.sin(math.radians(roll_angle_deg))
+    camber_change = camber_change_deg(roll_angle_deg, wishbone_length_mm)
 
     chassis_y = 360
     chassis_half_width = 200
@@ -177,7 +179,7 @@ def compute_wishbone_geometry(roll_angle_deg: float, wishbone_length_mm: float) 
             "segment": ["chassis", "upper arm", "upright", "upright", "lower arm", "chassis"],
         }
     )
-    return geometry, camber_change_deg
+    return geometry, camber_change
 
 
 def suspension_lab() -> None:
@@ -213,43 +215,53 @@ def suspension_lab() -> None:
 
     with col2:
         roll_range = np.linspace(-5, 5, 80)
-        camber_series = [-math.degrees(math.atan2(wishbone_length * math.sin(math.radians(r)), wishbone_length)) for r in roll_range]
+        camber_series = [camber_change_deg(r, wishbone_length) for r in roll_range]
         camber_df = pd.DataFrame({"Roll Angle": roll_range, "Camber Change": camber_series})
         camber_fig = px.line(camber_df, x="Roll Angle", y="Camber Change", title="Camber Change vs. Roll Angle", template="plotly_dark")
         st.plotly_chart(camber_fig, use_container_width=True)
 
 
+def _car_row(point: Dict) -> Dict:
+    ts = extract_timestamp(point)
+    speed = point.get("speed")
+    throttle = point.get("throttle")
+    brake = point.get("brake")
+    if ts is None or speed is None or throttle is None or brake is None:
+        return None
+    return {
+        "timestamp": pd.to_datetime(ts, utc=True, errors="coerce"),
+        "speed": float(speed),
+        "throttle": float(throttle),
+        "brake": float(brake),
+    }
+
+
 def parse_car_data(raw: List[Dict]) -> pd.DataFrame:
-    rows = []
-    for point in raw:
-        ts = point.get("date") or point.get("timestamp")
-        speed = point.get("speed")
-        throttle = point.get("throttle")
-        brake = point.get("brake")
-        if ts is None or speed is None or throttle is None or brake is None:
-            continue
-        rows.append(
-            {
-                "timestamp": pd.to_datetime(ts, utc=True, errors="coerce"),
-                "speed": float(speed),
-                "throttle": float(throttle),
-                "brake": float(brake),
-            }
-        )
-    df = pd.DataFrame(rows)
-    return df.dropna(subset=["timestamp"]).sort_values("timestamp") if not df.empty else pd.DataFrame(columns=["timestamp", "speed", "throttle", "brake"])
+    return parse_records(
+        raw,
+        _car_row,
+        ["timestamp", "speed", "throttle", "brake"],
+        "timestamp",
+        dropna_subset=["timestamp"],
+    )
+
+
+def _location_row(point: Dict) -> Dict:
+    ts = extract_timestamp(point)
+    x, y = point.get("x"), point.get("y")
+    if ts is None or x is None or y is None:
+        return None
+    return {"timestamp": pd.to_datetime(ts, utc=True, errors="coerce"), "x": float(x), "y": float(y)}
 
 
 def parse_location_data(raw: List[Dict]) -> pd.DataFrame:
-    rows = []
-    for point in raw:
-        ts = point.get("date") or point.get("timestamp")
-        x, y = point.get("x"), point.get("y")
-        if ts is None or x is None or y is None:
-            continue
-        rows.append({"timestamp": pd.to_datetime(ts, utc=True, errors="coerce"), "x": float(x), "y": float(y)})
-    df = pd.DataFrame(rows)
-    return df.dropna(subset=["timestamp"]).sort_values("timestamp") if not df.empty else pd.DataFrame(columns=["timestamp", "x", "y"])
+    return parse_records(
+        raw,
+        _location_row,
+        ["timestamp", "x", "y"],
+        "timestamp",
+        dropna_subset=["timestamp"],
+    )
 
 
 def telemetry_center() -> None:
