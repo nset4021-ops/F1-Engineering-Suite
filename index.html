@@ -23,104 +23,121 @@
       <div class="sidebar-card control-card">
         <span class="sidebar-label">Control Panel</span>
         <div class="control-stack">
+          <label class="toggle-container">
+            <span>Pilot Core Source</span>
+            <div class="toggle-switch">
+              <input type="checkbox" id="pilotClassToggle">
+              <span class="slider"></span>
+            </div>
+            <div class="toggle-labels">
+              <span class="label-opt active-opt" id="simLabel">Galactic Aces</span>
+              <span class="label-opt" id="realLabel">Real Pros</span>
+            </div>
+          </label>
+
           <label>
-            <span>Driver</span>
+            <span>Driver / Pilot</span>
             <select id="driverSelect"></select>
           </label>
           <label>
-            <span>Team</span>
-            <select id="teamSelect"></select>
+            <span>Team Syndicate</span>
+            <select id="teamSelect">
+              <option value="Astral Works">Astral Works</option>
+              <option value="Sith Racing">Sith Racing</option>
+              <option value="Jedi Academy">Jedi Academy</option>
+              <option value="Scoundrel F1">Scoundrel F1</option>
+            </select>
           </label>
           <label>
-            <span>Car</span>
-            <select id="carSelect"></select>
+            <span>Chassis Concept</span>
+            <select id="carSelect">
+              <option value="Balanced">Balanced Core</option>
+              <option value="Low Drag">Apex Low Drag</option>
+              <option value="High Downforce">Hyper Downforce</option>
+            </select>
           </label>
           <label>
-            <span>Track</span>
-            <select id="trackSelect"></select>
+            <span>Galactic Sector (Track)</span>
+            <select id="trackSelect">
+              <option value="monza">Monza (Low Drag Temple)</option>
+              <option value="silverstone">Silverstone (Classic Sweepers)</option>
+              <option value="spa">Spa-Francorchamps (Mountain Rollercoaster)</option>
+              <option value="baku">Baku (Castle Street Straight)</option>
+              <option value="suzuka">Suzuka (Technical Figure-Eight)</option>
+            </select>
           </label>
           <label>
-            <span>Weather</span>
-            <select id="weatherSelect"></select>
+            <span>Sector Atmospheric Weather</span>
+            <select id="weatherSelect">
+              <option value="dry">Optimal Dry</option>
+              <option value="damp">Atmospheric Mist (Damp)</option>
+              <option value="wet">Torrential Storm (Wet)</option>
+            </select>
           </label>
-          <button id="syncButton" class="primary-action" type="button">Engage Sandbox Simulator</button>
+          <button class="glowing-btn" id="syncButton">INITIATE MATRIX HYPERSYNC</button>
         </div>
       </div>
 
-      <nav class="tab-list" aria-label="Dashboard sections">
-        <button class="tab-button active" data-tab="pitwallPanel" type="button">Pit Wall</button>
-        <button class="tab-button" data-tab="suspensionPanel" type="button">Suspension</button>
-        <button class="tab-button" data-tab="telemetryPanel" type="button">Telemetry</button>
-      </nav>
-
-      <div class="sidebar-card" id="connectionCard">
-        <span class="sidebar-label">Command Status</span>
-        <strong id="apiStatus">Initializing hyperspace feeds...</strong>
-        <p id="apiHint">OpenF1 data is cached locally and the sandbox simulator will take over instantly on failure.</p>
+      <div class="sidebar-card state-card">
+        <span class="sidebar-label">Global Matrix Feed</span>
+        <div class="state-indicator">
+          <div class="indicator-dot active" id="apiStatus"></div>
+          <span id="apiHint">Initializing system link...</span>
+        </div>
+        <div class="state-metrics">
+          <div>Mode: <strong id="modeMetric">Sandbox</strong></div>
+          <div>Atmos: <strong id="weatherMetric">Dry</strong></div>
+          <div>Sector: <strong id="trackMetric">Monza</strong></div>
+        </div>
       </div>
     </aside>
 
-    <main class="workspace">
-      <header class="hero-panel">
-        <div>
-          <p class="eyebrow">Race Operations Dashboard</p>
-          <h2>Command the grid from a neon bridge above the stars.</h2>
-        </div>
-        <div class="hero-metrics">
-          <div class="metric-card">
-            <span>Mode</span>
-            <strong id="modeMetric">OpenF1</strong>
-          </div>
-          <div class="metric-card">
-            <span>Weather</span>
-            <strong id="weatherMetric">Dry</strong>
-          </div>
-          <div class="metric-card">
-            <span>Track</span>
-            <strong id="trackMetric">Monza</strong>
-          </div>
-        </div>
-      </header>
+    <main class="main-content">
+      <nav class="matrix-tabs">
+        <button class="tab-btn active" data-target="pitwallPanel">AI Pit Wall</button>
+        <button class="tab-btn" data-target="suspensionPanel">Suspension Lab</button>
+        <button class="tab-btn" data-target="telemetryPanel">ApexSim AI</button>
+        <button class="tab-btn" data-target="specPanel">Galactic Database</button>
+      </nav>
 
       <section class="panel active" id="pitwallPanel">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Module 01</p>
-            <h3>Pit Wall Degradation Command</h3>
+            <h3>Tactical Pace & Degradation Matrix</h3>
           </div>
           <div class="inline-meta">
             <span id="pitwallSource">Source: loading</span>
-            <span id="pitwallCompound">Compound: -</span>
+            <span id="pitwallSession">Session: -</span>
           </div>
         </div>
-        <div class="module-grid pitwall-grid">
-          <article class="module-card chart-card">
-            <div class="card-header">
-              <h4>Interactive Degradation Curve</h4>
-              <p>Grip decay responds to weather, car mass, and sandbox control inputs.</p>
-            </div>
-            <div id="pitwallChart" class="chart-surface"></div>
-          </article>
+
+        <div class="module-grid">
           <aside class="module-card side-stack">
-            <div class="summary-grid">
-              <div class="summary-card">
-                <span>Latest Lap</span>
-                <strong id="pitwallLap">-</strong>
-              </div>
-              <div class="summary-card">
-                <span>Latest Grip</span>
-                <strong id="pitwallGrip">-</strong>
-              </div>
-              <div class="summary-card">
-                <span>Session Key</span>
-                <strong id="pitwallSession">-</strong>
-              </div>
-              <div class="summary-card warning-shell" id="pitwallWarningShell">
-                <span>Holocomm</span>
-                <strong id="pitwallWarning">Awaiting telemetry</strong>
+            <div class="metric-card">
+              <p class="metric-label">Active Compound</p>
+              <h2 id="pitwallCompound">-</h2>
+            </div>
+            <div class="metric-card">
+              <p class="metric-label">Current Lap Cycle</p>
+              <h2 id="pitwallLap">-</h2>
+            </div>
+            <div class="metric-card">
+              <p class="metric-label">Residual Surface Friction</p>
+              <h2 id="pitwallGrip">-</h2>
+            </div>
+            <div id="pitwallWarningShell" style="display:none;">
+              <div class="warning-box" id="pitwallWarning">
+                CRITICAL TYRE DEGRADATION THRESHOLD EXCEEDED
               </div>
             </div>
           </aside>
+          <article class="module-card chart-card">
+            <div class="card-header">
+              <h4>Predicted Decay Curvature</h4>
+            </div>
+            <div id="pitwallChart" class="chart-surface"></div>
+          </article>
         </div>
       </section>
 
@@ -128,28 +145,24 @@
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Module 02</p>
-            <h3>Suspension Wireframe Lab</h3>
+            <h3>Suspension Lab Kinematics</h3>
           </div>
           <div class="inline-meta">
-            <span id="suspensionSource">Source: loading</span>
-            <span id="camberOutput">Camber: -</span>
+            <span id="suspensionSource">Source: interactive</span>
           </div>
         </div>
-
+        <div class="controls-row">
+          <label>
+            <span>Static Camber Matrix Deviation: <span id="camberOutput">0.0</span>°</span>
+            <input type="range" id="camberSlider" min="-350" max="100" value="-150">
+          </label>
+          <label>
+            <span>Chassis Core Static Height: <span id="heightOutput">0</span>mm</span>
+            <input type="range" id="chassisHeightSlider" min="-60" max="60" value="0">
+          </label>
+        </div>
         <div class="module-grid suspension-grid">
-          <article class="module-card">
-            <div class="controls-row">
-              <label class="control-block">
-                <span>Chassis Roll</span>
-                <input id="rollSlider" type="range" min="-5" max="5" step="0.1" value="0" />
-                <strong id="rollValue">0.0°</strong>
-              </label>
-              <label class="control-block">
-                <span>Wishbone Length</span>
-                <input id="wishboneSlider" type="range" min="300" max="500" step="1" value="420" />
-                <strong id="wishboneValue">420 mm</strong>
-              </label>
-            </div>
+          <article class="module-card canvas-card">
             <canvas id="suspensionCanvas" class="canvas-surface" width="980" height="520"></canvas>
           </article>
           <aside class="module-card side-stack">
@@ -184,6 +197,32 @@
               <p>Glowing velocity-coded route map with drifting starboard styling.</p>
             </div>
             <div id="trackChart" class="chart-surface"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="specPanel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Module 04</p>
+            <h3>Galactic Technical Database</h3>
+          </div>
+          <div class="inline-meta">
+            <span>Security Override: Level 1 Access Verified</span>
+          </div>
+        </div>
+        <div class="spec-deck-grid">
+          <article class="module-card spec-card">
+            <div class="card-header">
+              <h4>Pilot Dossier Matrix</h4>
+            </div>
+            <div class="spec-detail-block" id="pilotDossierBlock"></div>
+          </article>
+          <article class="module-card spec-card">
+            <div class="card-header">
+              <h4>Constructor Blueprint Specs</h4>
+            </div>
+            <div class="spec-detail-block" id="constructorBlueprintBlock"></div>
           </article>
         </div>
       </section>
