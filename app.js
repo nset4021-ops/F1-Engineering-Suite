@@ -63,6 +63,7 @@ const selectors = {
 };
 
 function populateDrivers() {
+  if (!selectors.driverSelect) return;
   selectors.driverSelect.innerHTML = "";
   const list = state.pilotClass === "fictional" ? galacticPilots : realPilots;
   list.forEach(pilot => {
@@ -196,12 +197,13 @@ async function updateDashboardData() {
 }
 
 function renderPitwallUI() {
+  if (!state.pitwall) return;
   const data = state.pitwall;
-  selectors.pitwallSource.textContent = `SOURCE: ${data.source.toUpperCase()}`;
-  selectors.pitwallCompound.textContent = data.compound;
-  selectors.pitwallLap.textContent = data.lap_number;
-  selectors.pitwallGrip.textContent = `${data.grip_level}%`;
-  selectors.pitwallSession.textContent = `KEY: ${data.session_key}`;
+  if (selectors.pitwallSource) selectors.pitwallSource.textContent = `SOURCE: ${data.source.toUpperCase()}`;
+  if (selectors.pitwallCompound) selectors.pitwallCompound.textContent = data.compound;
+  if (selectors.pitwallLap) selectors.pitwallLap.textContent = data.lap_number;
+  if (selectors.pitwallGrip) selectors.pitwallGrip.textContent = `${data.grip_level}%`;
+  if (selectors.pitwallSession) selectors.pitwallSession.textContent = `KEY: ${data.session_key}`;
 
   const laps = Array.from({ length: 45 }, (_, i) => i + 1);
   const compoundGrip = [];
@@ -245,20 +247,25 @@ function renderPitwallUI() {
     showlegend: false
   };
 
-  Plotly.react("pitwallChart", [gripTrace, currentLapTrace], layout, { responsive: true, displayModeBar: false });
+  const chartEl = document.getElementById("pitwallChart");
+  if (chartEl) {
+    Plotly.react("pitwallChart", [gripTrace, currentLapTrace], layout, { responsive: true, displayModeBar: false });
+  }
 
-  if (data.grip_level < 45.0) {
-    selectors.pitwallWarningShell.style.display = "block";
-    selectors.pitwallWarning.classList.add("danger-neon-glow");
-  } else {
-    selectors.pitwallWarningShell.style.display = "none";
-    selectors.pitwallWarning.classList.remove("danger-neon-glow");
+  if (selectors.pitwallWarningShell && selectors.pitwallWarning) {
+    if (data.grip_level < 45.0) {
+      selectors.pitwallWarningShell.style.display = "block";
+      selectors.pitwallWarning.classList.add("danger-neon-glow");
+    } else {
+      selectors.pitwallWarningShell.style.display = "none";
+      selectors.pitwallWarning.classList.remove("danger-neon-glow");
+    }
   }
 }
 
 function updateSuspensionMetricsUI() {
   if (!state.suspension || !selectors.suspensionMetrics) return;
-  selectors.suspensionSource.textContent = `SOURCE: ${state.suspension.source.toUpperCase()}`;
+  if (selectors.suspensionSource) selectors.suspensionSource.textContent = `SOURCE: ${state.suspension.source.toUpperCase()}`;
   selectors.suspensionMetrics.innerHTML = `
     <div class="metric-card">
       <p class="metric-label">Proxy Camber Factor</p>
@@ -279,8 +286,8 @@ function initSuspensionLab() {
     const baseChassisHeight = 220;
     const chassisY = baseChassisHeight + chInput;
 
-    selectors.camberOutput.textContent = cbInput.toFixed(2);
-    selectors.heightOutput.textContent = chInput.toFixed(0);
+    if (selectors.camberOutput) selectors.camberOutput.textContent = cbInput.toFixed(2);
+    if (selectors.heightOutput) selectors.heightOutput.textContent = chInput.toFixed(0);
 
     // Draw grid background
     ctx.strokeStyle = "rgba(120, 120, 120, 0.08)";
@@ -331,15 +338,15 @@ function initSuspensionLab() {
     ctx.lineTo(chassisLeftX, chassisBottomY);
     ctx.stroke();
 
-    // Wishbone Links and Hub connections (Left/Right assembly lines)
-    ctx.strokeStyle = "#ffbf00"; // Fixed: hex color instead of "amber"
+    // Wishbone Links and Hub connections
+    ctx.strokeStyle = "#ffbf00";
     ctx.shadowColor = "#ffbf00";
     ctx.lineWidth = 4;
     
     // Left Assembly
     ctx.beginPath();
-    ctx.moveTo(chassisLeftX, chassisTopY + 20); ctx.lineTo(180, 260); // Top wishbone
-    ctx.moveTo(chassisLeftX, chassisBottomY - 20); ctx.lineTo(180, 370); // Bottom wishbone
+    ctx.moveTo(chassisLeftX, chassisTopY + 20); ctx.lineTo(180, 260);
+    ctx.moveTo(chassisLeftX, chassisBottomY - 20); ctx.lineTo(180, 370);
     ctx.stroke();
 
     // Right Assembly
@@ -363,19 +370,21 @@ function initSuspensionLab() {
     ctx.fillRect(-15, -60, 30, 120);
     ctx.restore();
 
-    // Turn off shadow blurs for text updates
     ctx.shadowBlur = 0;
   }
 
+  selectors.camberSlider.removeEventListener("input", drawSuspension);
+  selectors.chassisHeightSlider.removeEventListener("input", drawSuspension);
   selectors.camberSlider.addEventListener("input", drawSuspension);
   selectors.chassisHeightSlider.addEventListener("input", drawSuspension);
   drawSuspension();
 }
 
 function renderTelemetryUI() {
+  if (!state.telemetry) return;
   const data = state.telemetry;
-  selectors.telemetrySource.textContent = `SOURCE: ${data.source.toUpperCase()}`;
-  selectors.telemetryCount.textContent = `SAMPLES: ${data.data.length}`;
+  if (selectors.telemetrySource) selectors.telemetrySource.textContent = `SOURCE: ${data.source.toUpperCase()}`;
+  if (selectors.telemetryCount) selectors.telemetryCount.textContent = `SAMPLES: ${data.data.length}`;
 
   const speedTrace = {
     x: data.data.map(d => d.loop),
@@ -415,7 +424,10 @@ function renderTelemetryUI() {
     yaxis3: { gridcolor: "rgba(120,120,120,0.16)", domain: [0, 0.28] }
   };
 
-  Plotly.react("telemetryChart", [speedTrace, throttleTrace, brakeTrace], layout, { responsive: true, displayModeBar: false });
+  const teleChartEl = document.getElementById("telemetryChart");
+  if (teleChartEl) {
+    Plotly.react("telemetryChart", [speedTrace, throttleTrace, brakeTrace], layout, { responsive: true, displayModeBar: false });
+  }
 
   // Draw 2D Route Plot
   const trackTrace = {
@@ -443,48 +455,64 @@ function renderTelemetryUI() {
     yaxis: { gridcolor: "rgba(120,120,120,0.16)", scaleanchor: "x", scaleratio: 1 }
   };
 
-  Plotly.react("trackChart", [trackTrace], trackLayout, { responsive: true, displayModeBar: false });
+  const trackChartEl = document.getElementById("trackChart");
+  if (trackChartEl) {
+    Plotly.react("trackChart", [trackTrace], trackLayout, { responsive: true, displayModeBar: false });
+  }
 }
 
 function updateStatusBanner() {
   const activeSource = (state.pitwall?.source === "real" || state.telemetry?.source === "real") ? "Real Matrix Feed" : "Simulated Sandbox";
-  selectors.apiHint.textContent = `Connected Link: ${activeSource}`;
-  selectors.modeMetric.textContent = (state.pitwall?.source === "real") ? "Telemetry Active" : "Sandbox";
-  selectors.weatherMetric.textContent = state.control.weather.toUpperCase();
-  selectors.trackMetric.textContent = state.control.track.toUpperCase();
+  if (selectors.apiHint) selectors.apiHint.textContent = `Connected Link: ${activeSource}`;
+  if (selectors.modeMetric) selectors.modeMetric.textContent = (state.pitwall?.source === "real") ? "Telemetry Active" : "Sandbox";
+  if (selectors.weatherMetric) selectors.weatherMetric.textContent = state.control.weather.toUpperCase();
+  if (selectors.trackMetric) selectors.trackMetric.textContent = state.control.track.toUpperCase();
 }
 
 function initControlPanel() {
   populateDrivers();
   
-  selectors.pilotClassToggle.addEventListener("change", handlePilotClassToggle);
-  selectors.driverSelect.addEventListener("change", (e) => {
-    state.control.driver = e.target.value;
-    updateDatabaseUI();
-  });
-  selectors.teamSelect.addEventListener("change", (e) => {
-    state.control.team = e.target.value;
-    updateDatabaseUI();
-  });
-  selectors.carSelect.addEventListener("change", (e) => {
-    state.control.car = e.target.value;
-  });
-  selectors.trackSelect.addEventListener("change", (e) => {
-    state.control.track = e.target.value;
-  });
-  selectors.weatherSelect.addEventListener("change", (e) => {
-    state.control.weather = e.target.value;
-  });
+  if (selectors.pilotClassToggle) selectors.pilotClassToggle.addEventListener("change", handlePilotClassToggle);
+  
+  if (selectors.driverSelect) {
+    selectors.driverSelect.addEventListener("change", (e) => {
+      state.control.driver = e.target.value;
+      updateDatabaseUI();
+    });
+  }
+  if (selectors.teamSelect) {
+    selectors.teamSelect.addEventListener("change", (e) => {
+      state.control.team = e.target.value;
+      updateDatabaseUI();
+    });
+  }
+  if (selectors.carSelect) {
+    selectors.carSelect.addEventListener("change", (e) => {
+      state.control.car = e.target.value;
+    });
+  }
+  if (selectors.trackSelect) {
+    selectors.trackSelect.addEventListener("change", (e) => {
+      state.control.track = e.target.value;
+    });
+  }
+  if (selectors.weatherSelect) {
+    selectors.weatherSelect.addEventListener("change", (e) => {
+      state.control.weather = e.target.value;
+    });
+  }
 
-  selectors.syncButton.addEventListener("click", () => {
-    selectors.syncButton.textContent = "SYNCHRONIZING FEED CORRELATION...";
-    selectors.syncButton.disabled = true;
-    setTimeout(async () => {
-      await updateDashboardData();
-      selectors.syncButton.textContent = "INITIATE MATRIX HYPERSYNC";
-      selectors.syncButton.disabled = false;
-    }, 600);
-  });
+  if (selectors.syncButton) {
+    selectors.syncButton.addEventListener("click", () => {
+      selectors.syncButton.textContent = "SYNCHRONIZING FEED CORRELATION...";
+      selectors.syncButton.disabled = true;
+      setTimeout(async () => {
+        await updateDashboardData();
+        selectors.syncButton.textContent = "INITIATE MATRIX HYPERSYNC";
+        selectors.syncButton.disabled = false;
+      }, 600);
+    });
+  }
 }
 
 function initTabs() {
@@ -493,21 +521,17 @@ function initTabs() {
 
   tabs.forEach(tab => {
     tab.addEventListener("click", () => {
-      // Remove 'active' from all tab buttons and all layout panels
       tabs.forEach(t => t.classList.remove("active"));
       panels.forEach(p => p.classList.remove("active"));
 
-      // Add 'active' to the clicked button
       tab.classList.add("active");
       
-      // Reveal the exact targeted panel matching the dataset target attribute
       const target = tab.getAttribute("data-target");
       const activePanel = document.getElementById(target);
       if (activePanel) {
         activePanel.classList.add("active");
       }
       
-      // Force Plotly graphics to resize inside their newly visible containers
       window.requestAnimationFrame(() => {
         ["pitwallChart", "telemetryChart", "trackChart"].forEach(chartId => {
           const el = document.getElementById(chartId);
@@ -515,7 +539,6 @@ function initTabs() {
             Plotly.Plots.resize(el);
           }
         });
-        // Force the suspension lab layout to update its canvas drawing bounds
         if (target === "suspensionPanel") {
           initSuspensionLab();
         }
@@ -523,3 +546,16 @@ function initTabs() {
     });
   });
 }
+
+// 🚀 INITIALIZE ALL MODULES SAFELY ONCE DOM IS FULLY LOADED
+document.addEventListener("DOMContentLoaded", async () => {
+  initControlPanel();
+  initTabs();
+  
+  // Prime the suspension canvas on startup
+  initSuspensionLab();
+  
+  // Synchronize initial database specifications and telemetry metrics
+  await fetchDatabaseSpecs();
+  await updateDashboardData();
+});

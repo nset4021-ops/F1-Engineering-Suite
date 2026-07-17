@@ -23,7 +23,6 @@ COMPOUND_DEGRADATION = {
     "UNKNOWN": 3.5,
 }
 
-# Expanded Tracks
 DEFAULT_TRACKS = {
     "monza": {"name": "Monza Circuit", "base_speed": 372.0, "corner_factor": 0.84, "distance": 5793.0, "atmosphere": "Low-downforce temple of speed"},
     "silverstone": {"name": "Silverstone GP", "base_speed": 343.0, "corner_factor": 0.78, "distance": 5891.0, "atmosphere": "High-speed classic sweepers"},
@@ -33,7 +32,6 @@ DEFAULT_TRACKS = {
     "default": {"name": "Standard Test Track", "base_speed": 340.0, "corner_factor": 0.80, "distance": 5500.0, "atmosphere": "Telemetry proving grounds"}
 }
 
-# Extensive Galactic Database Specs
 TEAM_SPECS = {
     "Astral Works": {
         "engine": "Apex Astral V6 Hybrid (1,040 HP)",
@@ -65,14 +63,15 @@ TEAM_SPECS = {
     }
 }
 
+# Driver keys matched with frontend selector values to handle dossier lookups flawlessly
 DRIVER_SPECS = {
     "Apex One": {"real_name": "Classified Prototype Pilot", "experience": "Infinite (Machine Learned)", "reflexes": "99/100", "patience": "72/100", "profile": "Synthesized AI pilot designed for ideal racing lines."},
     "Red Leader": {"real_name": "Garven Dreis", "experience": "12 Seasons", "reflexes": "91/100", "patience": "94/100", "profile": "Veteran racer with impeccable spatial awareness and defensive strategy."},
     "Vader": {"real_name": "Anakin Skywalker", "experience": "9 Seasons", "reflexes": "98/100", "patience": "35/100", "profile": "Terrifying speed profile. Highly aggressive but prone to lockups under pressure."},
     "Solo": {"real_name": "Han Solo", "experience": "7 Seasons", "reflexes": "95/100", "patience": "50/100", "profile": "Known for overtaking in impossible gaps, though chassis integrity takes a hit."},
-    "Lewis Hamilton": {"real_name": "Lewis Hamilton", "experience": "20 Seasons", "reflexes": "96/100", "patience": "97/100", "profile": "7-time World Champion. Peerless wet-weather masterclass and race management."},
-    "Max Verstappen": {"real_name": "Max Verstappen", "experience": "12 Seasons", "reflexes": "98/100", "patience": "91/100", "profile": "Multi-time World Champion. Unbelievably precise car control and ruthless race pace."},
-    "Charles Leclerc": {"real_name": "Charles Leclerc", "experience": "9 Seasons", "reflexes": "97/100", "patience": "85/100", "profile": "Qualifying virtuoso with a reputation for lightning-fast apex speeds."}
+    "44": {"real_name": "Lewis Hamilton", "experience": "20 Seasons", "reflexes": "96/100", "patience": "97/100", "profile": "7-time World Champion. Peerless wet-weather masterclass and race management."},
+    "3": {"real_name": "Max Verstappen", "experience": "12 Seasons", "reflexes": "98/100", "patience": "91/100", "profile": "Multi-time World Champion. Unbelievably precise car control and ruthless race pace."},
+    "16": {"real_name": "Charles Leclerc", "experience": "9 Seasons", "reflexes": "97/100", "patience": "85/100", "profile": "Qualifying virtuoso with a reputation for lightning-fast apex speeds."}
 }
 
 
@@ -244,7 +243,6 @@ def _telemetry_payload(session_key: int, driver_number: int, track_id: str = "mo
                 data_points = []
                 for idx, row in enumerate(merged.itertuples(index=False)):
                     try:
-                        # Extract real parts and cast cleanly to prevent dynamic type conflicts
                         x_val = float(getattr(row, "x", 0.0).real if hasattr(getattr(row, "x", 0.0), "real") else getattr(row, "x", 0.0))
                         y_val = float(getattr(row, "y", 0.0).real if hasattr(getattr(row, "y", 0.0), "real") else getattr(row, "y", 0.0))
                         speed_val = float(getattr(row, "speed", 0.0))
@@ -274,14 +272,13 @@ def _telemetry_payload(session_key: int, driver_number: int, track_id: str = "mo
 
     telemetry = _simulate_telemetry_data(track_id, car_type, weather_type)
     
-    # Safe data parsing using real numerical casting for sandbox frames
     sandbox_data = []
     for idx, row in enumerate(telemetry.itertuples(index=False)):
-        x_raw = getattr(row, "x", 0.0)
-        y_raw = getattr(row, "y", 0.0)
         speed_raw = getattr(row, "speed", 0.0)
         throttle_raw = getattr(row, "throttle", 0.0)
         brake_raw = getattr(row, "brake", 0.0)
+        x_raw = getattr(row, "x", 0.0)
+        y_raw = getattr(row, "y", 0.0)
         vel_raw = getattr(row, "velocity_state", 0.0)
 
         sandbox_data.append({
@@ -302,7 +299,6 @@ def _telemetry_payload(session_key: int, driver_number: int, track_id: str = "mo
 
 @app.get("/api/specs")
 def api_specs() -> Dict[str, Any]:
-    """Exposes high-fidelity team and driver galactic technical data profiles."""
     return {
         "teams": TEAM_SPECS,
         "drivers": DRIVER_SPECS
@@ -336,7 +332,6 @@ def api_telemetry(
     return _telemetry_payload(session_key, driver_number, track_id, car_type, weather_type)
 
 
-# Middleware to disable browser caching during development
 @app.middleware("http")
 async def add_no_cache_headers(request, call_next):
     response = await call_next(request)
@@ -347,7 +342,6 @@ async def add_no_cache_headers(request, call_next):
     return response
 
 
-# Serve Static Assets cleanly from current directory
 app.mount("/", StaticFiles(directory=".", html=True), name="frontend")
 
 
